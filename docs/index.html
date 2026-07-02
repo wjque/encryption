@@ -96,8 +96,6 @@
     <input type="file" id="m-import-file" accept=".json,application/json">
   </label>
   <button id="m-reset" class="full danger">重置保险库（清除全部）</button>
-  <hr>
-  <p class="hint small">迭代次数 <span id="m-iter"></span> · 数据存储于浏览器 localStorage</p>
   <div class="dialog-actions"><button id="m-close" class="primary">关闭</button></div>
 </dialog>
 
@@ -117,7 +115,6 @@
 </dialog>
 
 <footer>
-  <p>纯前端实现 · 主密码用 PBKDF2-SHA256(600k) 派生 AES-256-GCM 密钥</p>
   <p class="warn">⚠️ 主密码遗忘 = 数据无法恢复，请务必牢记并定期导出备份。</p>
 </footer>
 

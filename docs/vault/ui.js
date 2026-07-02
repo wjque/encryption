@@ -116,7 +116,6 @@
     $("app").hidden = false;
     renderEntries();
     scheduleAutoLock();
-    $("m-iter").textContent = V.KDF.iterations;
   }
   function exitApp() {
     V.lock();
