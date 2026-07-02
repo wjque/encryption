@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>🔐 密码保险库</h1>
-  <p class="tagline">记住一个主密码，管理所有站点密码 · 全程在浏览器本地完成，无网络请求</p>
+  <p class="tagline">记住一个主密码，管理所有站点密码 · 所有运算在浏览器本地完成，无网络请求</p>
 </header>
 
 <!-- ============ 解锁/设置界面 ============ -->
@@ -117,8 +117,8 @@
 </dialog>
 
 <footer>
-  <p>纯前端实现 · 主密码用 PBKDF2-SHA256(600k) 派生 AES-256-GCM 密钥 · <a href="demo.html">RSA 算法演示</a></p>
-  <p class="warn">⚠️ 教学性工具，未做抗侧信道防护。重要账号建议配合专业密码管理器使用，并定期导出备份。</p>
+  <p>纯前端实现 · 主密码用 PBKDF2-SHA256(600k) 派生 AES-256-GCM 密钥</p>
+  <p class="warn">⚠️ 主密码遗忘 = 数据无法恢复，请务必牢记并定期导出备份。</p>
 </footer>
 
 <script src="vault/crypto.js"></script>
