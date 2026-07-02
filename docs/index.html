@@ -28,11 +28,11 @@
     <button id="setup-btn" class="primary">🔐 创建保险库</button>
     <div id="setup-status" class="status"></div>
     <hr>
-    <p class="hint small">
-      已有保险库？<br>
-      · <a href="#" id="pair-link">📱 配对接入</a><br>
-      · <a href="#" id="restore-link">Token + Gist ID 恢复</a>
-    </p>
+    <div class="hint small restore-options">
+      已有保险库？
+      <a href="#" id="pair-link"><span>🔹</span>QR + Pin 配对接入</a>
+      <a href="#" id="restore-link"><span>🔹</span>Token + Gist ID 恢复</a>
+    </div>
   </div>
 
   <div id="gate-unlock" hidden>
@@ -230,7 +230,7 @@
     <div id="r-status" class="status"></div>
     <div class="dialog-actions">
       <button type="button" id="r-cancel">取消</button>
-      <button type="button" id="r-go" class="primary">☁ 恢复</button>
+      <button type="button" id="r-go" class="primary">恢复</button>
     </div>
   </form>
 </dialog>
@@ -255,7 +255,7 @@
     <div id="a-status" class="status"></div>
     <div class="dialog-actions">
       <button type="button" id="a-cancel">取消</button>
-      <button type="button" id="a-go" class="primary">📱 接入</button>
+      <button type="button" id="a-go" class="primary">接入</button>
     </div>
   </form>
 </dialog>
@@ -303,7 +303,7 @@
 </dialog>
 
 <footer>
-  <p class="warn">⚠ 主密码遗忘无法恢复</p>
+  <p class="warn">⚠️ 主密码遗忘无法恢复</p>
 </footer>
 
 <script src="vault/crypto.js"></script>

@@ -82,6 +82,27 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .warn { color: var(--yellow); }
 
+.restore-options {
+  display: block;
+}
+.restore-options a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 3px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 400;
+}
+.restore-options a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.restore-options span {
+  font-size: 11px;
+}
+
 .status { font-size: 14px; min-height: 20px; margin-top: 10px; color: var(--text-dim); }
 .status.ok { color: var(--green); }
 .status.err { color: var(--red); }
