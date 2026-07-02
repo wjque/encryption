@@ -212,10 +212,22 @@
   }
 
   // --- 重置（彻底删除保险库）---
-  function reset() {
+  // opts.deleteRemote: 是否同时删除远端 Gist（需当前处于已解锁状态才可行）
+  // 返回 { remoteDeleted: boolean, remoteError?: string }
+  async function reset(opts = {}) {
+    let remoteDeleted = false, remoteError;
+    if (opts.deleteRemote && VAULT.SYNC && VAULT.SYNC.isReady()) {
+      try {
+        await VAULT.SYNC.deleteRemoteGist();
+        remoteDeleted = true;
+      } catch (e) {
+        remoteError = e.message;
+      }
+    }
     localStorage.removeItem(STORE_KEY);
     if (VAULT.SYNC) VAULT.SYNC.disable();
     lock();
+    return { remoteDeleted, remoteError };
   }
 
   // --- 内部：要求已解锁 ---

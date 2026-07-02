@@ -139,6 +139,38 @@ a:hover { text-decoration: underline; }
 
 .dim { color: var(--text-dim); font-weight: normal; }
 code { font-family: var(--mono); }
+.ok-text { color: var(--green); }
+.err-text { color: var(--red); }
+
+/* ============ 配对 QR ============ */
+.pair-qr {
+  width: 260px; height: 260px; max-width: 100%;
+  margin: 12px auto; background: #fff; padding: 12px;
+  border-radius: 8px;
+}
+.pair-qr svg { display: block; width: 100%; height: 100%; }
+
+.pair-pin-box {
+  text-align: center; margin: 16px 0 12px;
+  padding: 14px; background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.pair-pin-label { color: var(--text-dim); font-size: 12px; margin-bottom: 6px; }
+.pair-pin {
+  font-family: var(--mono); font-size: 32px; font-weight: 700;
+  letter-spacing: 12px; color: var(--accent);
+}
+.pair-url-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.pair-url-row input {
+  flex: 1; font-family: var(--mono); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.pair-url-row button { flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .pair-qr { width: 220px; height: 220px; }
+  .pair-pin { font-size: 28px; letter-spacing: 10px; }
+}
 
 /* dialog */
 dialog {

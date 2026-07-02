@@ -113,10 +113,7 @@
   $("unlock-pw").addEventListener("keydown", (e) => { if (e.key === "Enter") $("unlock-btn").click(); });
   $("reset-link").addEventListener("click", (e) => {
     e.preventDefault();
-    if (confirm("确定重置？将清除本浏览器中的所有保险库数据，且不可恢复。")) {
-      V.reset();
-      location.reload();
-    }
+    openResetDialog();
   });
 
   // ============ 进入主界面 ============
@@ -356,11 +353,43 @@
     reader.readAsText(file);
   });
   $("m-reset").addEventListener("click", () => {
-    if (confirm("确定重置？将清除本浏览器中的所有保险库数据，且不可恢复。")) {
-      V.reset();
-      location.reload();
-    }
+    $("menu-dialog").close();
+    openResetDialog();
   });
+
+  function openResetDialog() {
+    setStatus("reset-status", "", "");
+    // 仅在"已解锁 + 已启用同步"时，"同时删除云端"按钮才可用
+    // （因为删除远端需要内存中的 PAT）
+    const hasRemote = S.isReady();
+    $("reset-both").hidden = !hasRemote;
+    $("reset-remote-note").hidden = !hasRemote;
+    $("reset-dialog").showModal();
+  }
+
+  $("reset-cancel").addEventListener("click", () => $("reset-dialog").close());
+
+  $("reset-local").addEventListener("click", async () => {
+    if (!confirm("确定仅清除本地数据？云端 Gist 会保留。")) return;
+    await V.reset({ deleteRemote: false });
+    location.reload();
+  });
+
+  $("reset-both").addEventListener("click", async () => {
+    if (!confirm("确定同时删除云端 Gist？此操作不可撤销，所有设备的同步数据都会失效。")) return;
+    setStatus("reset-status", "正在删除云端 Gist…", "");
+    $("reset-both").disabled = true;
+    $("reset-local").disabled = true;
+    const r = await V.reset({ deleteRemote: true });
+    if (r.remoteError) {
+      // 远端删除失败：本地已清（reset() 无论如何都清本地），提示用户手动去 GitHub 处理
+      alert("本地已清除，但云端 Gist 删除失败：" + r.remoteError +
+            "\n请手动到 https://gist.github.com 删除对应 Gist。");
+    }
+    location.reload();
+  });
+
+  // 未解锁时的 gate 页面上的重置链接，走同一对话框（但云端按钮会被隐藏）
 
   // ============================================================
   // 云同步 UI
@@ -440,11 +469,35 @@
       const meta = S.getMeta();
       $("sync-info-gistid").textContent = meta.gistId;
       $("sync-info-time").textContent = fmtRelative(meta.lastSyncAt);
+      $("sync-info-token").textContent = "检测中…";
+      $("sync-info-token").className = "";
+      // 异步检测 token 健康，不阻塞对话框展开
+      S.checkTokenHealth().then(renderTokenHealth);
     } else {
       $("sync-token").value = "";
       $("sync-gistid").value = "";
     }
     $("sync-dialog").showModal();
+  }
+
+  function renderTokenHealth(r) {
+    const el = $("sync-info-token");
+    if (!el) return;
+    if (r.ok) {
+      el.innerHTML = `<span class="ok-text">✓ 有效</span>（GitHub 用户 <code>${escapeHtml(r.login)}</code>）`;
+    } else {
+      const msg = {
+        "no-sync":        "同步未启用",
+        "no-token":       "内存中无 Token（请重新解锁）",
+        "token-invalid":  "❌ Token 无效或已过期 —— 请点「🔄 更换 Token」",
+        "gist-forbidden": "⚠ Token 有效，但无权访问当前 Gist",
+        "network":        `⚠ 网络错误：${r.error || ""}`,
+      }[r.reason] || "未知状态";
+      el.innerHTML = `<span class="err-text">${escapeHtml(msg)}</span>`;
+    }
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
   $("sync-cancel").addEventListener("click", () => $("sync-dialog").close());
   $("sync-close-on").addEventListener("click", () => $("sync-dialog").close());
@@ -535,6 +588,116 @@
     $("sync-dialog").close();
   });
 
+  // ---- 更换 Token ----
+  $("sync-replace-token").addEventListener("click", () => {
+    $("sync-dialog").close();
+    $("rt-token").value = "";
+    setStatus("rt-status", "", "");
+    $("replace-token-dialog").showModal();
+    setTimeout(() => $("rt-token").focus(), 0);
+  });
+  $("rt-cancel").addEventListener("click", () => {
+    $("rt-token").value = "";
+    $("replace-token-dialog").close();
+  });
+  $("rt-go").addEventListener("click", async () => {
+    const newToken = $("rt-token").value.trim();
+    if (!newToken) return setStatus("rt-status", "❌ 请粘贴新 Token", "err");
+    const key = V.getMasterKey();
+    if (!key) return setStatus("rt-status", "❌ 保险库未解锁", "err");
+    setStatus("rt-status", "正在验证新 Token 并检查 Gist 访问权限…", "");
+    $("rt-go").disabled = true;
+    try {
+      const r = await S.replaceToken(key, newToken);
+      setStatus("rt-status", `✓ 已更换（GitHub 用户 ${r.login}）`, "ok");
+      renderSyncBadge("ok");
+      setTimeout(() => {
+        $("rt-token").value = "";
+        $("replace-token-dialog").close();
+        openSyncDialog();  // 回到同步设置，会重新检测 token 健康
+      }, 800);
+    } catch (e) {
+      setStatus("rt-status", "❌ " + e.message, "err");
+    } finally {
+      $("rt-go").disabled = false;
+    }
+  });
+  // ESC 关闭时清空敏感字段
+  $("replace-token-dialog").addEventListener("close", () => {
+    $("rt-token").value = "";
+  });
+
+  // ============================================================
+  // 添加新设备（QR 配对）—— 发起端
+  // ============================================================
+  let pairCountdownTimer = null;
+  const PAIR_TTL_SEC = 30;
+
+  $("sync-add-device").addEventListener("click", async () => {
+    $("sync-dialog").close();
+    await regeneratePairCode();
+    $("pair-dialog").showModal();
+  });
+
+  async function regeneratePairCode() {
+    try {
+      const { pin, fragment } = await S.createPairPayload();
+      const url = location.origin + location.pathname + "#pair=" + fragment;
+      $("pair-pin").textContent = pin.split("").join(" ");
+      $("pair-url").value = url;
+      $("pair-qr").innerHTML = QR.toSVG(url, { scale: 4, margin: 2 });
+      startCountdown(PAIR_TTL_SEC);
+    } catch (e) {
+      alert("生成配对码失败：" + e.message);
+      $("pair-dialog").close();
+    }
+  }
+  function startCountdown(seconds) {
+    stopCountdown();
+    let left = seconds;
+    const tick = () => {
+      if (left <= 0) {
+        stopCountdown();
+        $("pair-pin").textContent = "- - - -";
+        $("pair-qr").innerHTML = '<div class="empty">配对码已过期，请重新生成</div>';
+        $("pair-url").value = "";
+        $("pair-countdown").textContent = "已过期";
+        return;
+      }
+      $("pair-countdown").textContent = `剩余 ${left} 秒...`;
+      left--;
+    };
+    tick();
+    pairCountdownTimer = setInterval(tick, 1000);
+  }
+  function stopCountdown() {
+    if (pairCountdownTimer) clearInterval(pairCountdownTimer);
+    pairCountdownTimer = null;
+  }
+  $("pair-regen").addEventListener("click", () => regeneratePairCode());
+  $("pair-copy").addEventListener("click", () => {
+    if (!$("pair-url").value) return;
+    navigator.clipboard.writeText($("pair-url").value).then(() => {
+      const b = $("pair-copy"); const old = b.textContent;
+      b.textContent = "已复制 ✓";
+      setTimeout(() => (b.textContent = old), 1200);
+    });
+  });
+  $("pair-close").addEventListener("click", () => {
+    stopCountdown();
+    $("pair-pin").textContent = "- - - -";  // 关闭时立刻清屏
+    $("pair-qr").innerHTML = "";
+    $("pair-url").value = "";
+    $("pair-dialog").close();
+  });
+  // ESC 关闭 dialog 也要清理
+  $("pair-dialog").addEventListener("close", () => {
+    stopCountdown();
+    $("pair-pin").textContent = "- - - -";
+    $("pair-qr").innerHTML = "";
+    $("pair-url").value = "";
+  });
+
   // ---- 冲突对话框 ----
   $("cf-pull").addEventListener("click", async () => {
     if (!pendingConflictContent) return;
@@ -601,6 +764,97 @@
     }
   });
 
+  // ============================================================
+  // 用配对码接入 —— 接收端
+  // ============================================================
+  $("pair-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    openAcceptDialog();
+  });
+
+  function openAcceptDialog(prefillFragment) {
+    $("accept-form").reset();
+    setStatus("a-status", "", "");
+    if (prefillFragment) {
+      // 尝试构造完整 URL 展示
+      $("a-url").value = location.origin + location.pathname + "#pair=" + prefillFragment;
+      // 光标聚焦到 PIN
+      setTimeout(() => $("a-pin").focus(), 0);
+    } else {
+      setTimeout(() => $("a-url").focus(), 0);
+    }
+    $("accept-dialog").showModal();
+  }
+  $("a-cancel").addEventListener("click", () => $("accept-dialog").close());
+
+  // 从输入框里的 URL 或纯 fragment 中抽取 pair 部分
+  function extractPairFragment(input) {
+    if (!input) return null;
+    input = input.trim();
+    // 匹配 #pair=xxx 或纯粹 xxx
+    const m = input.match(/#pair=([A-Za-z0-9_-]+)/);
+    if (m) return m[1];
+    // 若整串看着像 base64url，也接受
+    if (/^[A-Za-z0-9_-]+$/.test(input) && input.length > 30) return input;
+    return null;
+  }
+
+  $("a-go").addEventListener("click", async () => {
+    const url = $("a-url").value;
+    const pin = $("a-pin").value.trim();
+    const master = $("a-master").value;
+    const fragment = extractPairFragment(url);
+    if (!fragment) return setStatus("a-status", "❌ 配对链接格式错误", "err");
+    if (!/^\d{4}$/.test(pin)) return setStatus("a-status", "❌ PIN 必须是 4 位数字", "err");
+    if (!master) return setStatus("a-status", "❌ 请输入主密码", "err");
+
+    setStatus("a-status", "正在解密配对码…", "");
+    $("a-go").disabled = true;
+    try {
+      // 1) 解 pair payload 拿到 token + gistId
+      const { token, gistId } = await S.decodePairPayload(fragment, pin);
+      // 2) 从 Gist 拉取加密的 vault
+      setStatus("a-status", "正在从 GitHub 拉取保险库…", "");
+      const r = await S.fetchOnly(token, gistId);
+      // 3) 写入本地 + 用主密码解锁
+      V.applyRemoteVault(r.content);
+      setStatus("a-status", "正在派生密钥并解锁…", "");
+      await V.unlock(master);
+      const key = V.getMasterKey();
+      // 4) 用主密钥加密 token 落盘，进入主界面
+      await S.completeRestore(key, token, gistId, r.etag);
+      $("accept-dialog").close();
+      // 清除 URL 里的 #pair 以免留痕
+      history.replaceState(null, "", location.pathname);
+      enterApp({ initialPull: false });
+    } catch (e) {
+      setStatus("a-status", "❌ " + e.message, "err");
+      // 部分失败清理：若已写入本地但未解锁成功，回滚
+      if (V.exists() && !V.isUnlocked()) V.reset();
+    } finally {
+      $("a-go").disabled = false;
+    }
+  });
+
+  // ---- 启动时检测 URL fragment ----
+  function checkPairFragment() {
+    const m = location.hash.match(/#pair=([A-Za-z0-9_-]+)/);
+    if (!m) return false;
+    const fragment = m[1];
+    // 若已存在保险库，先提示
+    if (V.exists()) {
+      if (!confirm("检测到配对链接。是否接入并覆盖本设备当前的保险库？")) {
+        history.replaceState(null, "", location.pathname);
+        return false;
+      }
+      V.reset();
+    }
+    // 打开配对接入对话框，预填 fragment
+    openAcceptDialog(fragment);
+    return true;
+  }
+
   // ============ 启动 ============
   initGate();
+  checkPairFragment();
 })();

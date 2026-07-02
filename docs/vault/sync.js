@@ -88,6 +88,59 @@
     return { login: user.login };
   }
 
+  // 检查当前存的 token 是否仍有效，并顺便探测能否访问当前 Gist
+  //   { ok: true, login }                        全绿
+  //   { ok: false, reason: "no-sync" }           未配置同步
+  //   { ok: false, reason: "no-token" }          有配置但内存里没 token（未 attach）
+  //   { ok: false, reason: "token-invalid" }     token 过期/被吊销
+  //   { ok: false, reason: "gist-forbidden" }    token 有效但访问不了当前 Gist
+  //   { ok: false, reason: "network", error }    网络问题
+  async function checkTokenHealth() {
+    if (!syncState) return { ok: false, reason: "no-sync" };
+    if (!plainToken) return { ok: false, reason: "no-token" };
+    try {
+      const u = await ghRequest(plainToken, "/user");
+      if (u.status === 401) return { ok: false, reason: "token-invalid" };
+      if (!u.ok) return { ok: false, reason: "network", error: `GitHub ${u.status}` };
+      const user = await u.json();
+      const g = await ghRequest(plainToken, `/gists/${syncState.gistId}`);
+      if (g.status === 401) return { ok: false, reason: "token-invalid" };
+      if (g.status === 403 || g.status === 404) return { ok: false, reason: "gist-forbidden" };
+      if (!g.ok) return { ok: false, reason: "network", error: `GitHub ${g.status}` };
+      return { ok: true, login: user.login };
+    } catch (e) {
+      return { ok: false, reason: "network", error: e.message };
+    }
+  }
+
+  // 更换 token：仅当新 token 有效且能访问当前 Gist 时才落盘
+  // masterKey: 当前主密钥，用于加密新 token
+  // 返回：{ login } —— 新 token 所属的 GitHub 用户名
+  async function replaceToken(masterKey, newToken) {
+    if (!syncState) throw new Error("同步未启用");
+    if (!newToken) throw new Error("请输入新的 Token");
+    // 验 token 有效
+    const u = await ghRequest(newToken, "/user");
+    if (u.status === 401) throw new Error("新 Token 无效");
+    if (!u.ok) throw new Error(`GitHub ${u.status}：无法验证 Token`);
+    const user = await u.json();
+    // 验能读当前 Gist
+    const g = await ghRequest(newToken, `/gists/${syncState.gistId}`);
+    if (g.status === 401) throw new Error("新 Token 无效");
+    if (g.status === 403) throw new Error("新 Token 权限不足（需要 Gists: Read and write）");
+    if (g.status === 404) throw new Error("新 Token 无法访问当前 Gist（可能不属于同一 GitHub 账号）");
+    if (!g.ok) throw new Error(`GitHub ${g.status}：无法访问当前 Gist`);
+    const gistData = await g.json();
+
+    // 都通过 → 更新内存 + 落盘（用主密钥加密）
+    plainToken = newToken;
+    syncState.tokenCt = await encryptToken(masterKey, newToken);
+    syncState.lastEtag = g.headers.get("etag") || syncState.lastEtag;
+    writeSync(syncState);
+    emit("ok");
+    return { login: user.login, updatedAt: gistData.updated_at };
+  }
+
   // 创建新 Gist
   async function createGist(token, content) {
     const { data, etag } = await ghJson(token, "/gists", {
@@ -197,6 +250,17 @@
   function disable() {
     detach();
     writeSync(null);
+  }
+
+  // 删除远端 Gist（需要已解锁，plainToken 在内存中）
+  async function deleteRemoteGist() {
+    if (!isReady()) throw new Error("同步未启用或未解锁，无法删除云端 Gist");
+    const r = await ghRequest(plainToken, `/gists/${syncState.gistId}`, { method: "DELETE" });
+    if (r.status === 204 || r.status === 200) return true;
+    if (r.status === 404) return true;  // 已不存在，视为成功
+    if (r.status === 401) throw new Error("Token 无效，无法删除远端 Gist");
+    if (r.status === 403) throw new Error("Token 权限不足，无法删除该 Gist");
+    throw new Error(`GitHub ${r.status}：删除 Gist 失败`);
   }
 
   // ---------- 拉取远端并对比 ----------
@@ -321,16 +385,107 @@
     writeSync(syncState);
   }
 
+  // ============================================================
+  // 配对加密（QR 码用）
+  //
+  // 生成端：pin(4 位)+ token + gistId → PBKDF2 派生临时密钥 → AES-GCM 加密
+  //         → base64url 编码为 URL fragment 内容
+  // 扫码端：解 base64url → 用 pin 派生密钥 → 解密还原 {token, gistId}
+  //
+  // 生命周期：
+  //   - 每次「添加新设备」重新生成 PIN 与盐/nonce → QR 每次不同
+  //   - PIN 只在生成端屏幕上显示 30 秒，倒计时结束 UI 关闭
+  //   - 扫码端拿到 payload 也需 PIN 才能解 → 偷拍 QR 无用
+  // ============================================================
+  const PAIR_KDF_ITER = 200_000;    // 配对场景低于 vault 主 KDF 即可，PIN 只有 4 位数字
+
+  // base64url（无填充，URL 安全）
+  function b64u(bytes) {
+    return VAULT.b64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function unb64u(str) {
+    const s = str.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((str.length + 3) % 4);
+    return VAULT.unb64(s);
+  }
+
+  // 用 PIN 派生一次性 AES-GCM 密钥
+  async function derivePinKey(pin, salt) {
+    const baseKey = await crypto.subtle.importKey(
+      "raw", VAULT.utf8(pin), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt, iterations: PAIR_KDF_ITER, hash: "SHA-256" },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
+      false, ["encrypt", "decrypt"]);
+  }
+
+  // 生成配对 payload：返回 { pin, fragment }
+  //   - pin: 4 位数字字符串（UI 显示给用户）
+  //   - fragment: 放到 URL 的 #pair=... 后面的 base64url 字符串
+  async function createPairPayload() {
+    if (!isReady()) throw new Error("同步未启用，无法生成配对码");
+    // 生成 4 位随机 PIN（0000-9999），用 crypto.getRandomValues 拒绝采样保证均匀
+    const buf = new Uint32Array(1);
+    let n;
+    const limit = 0x100000000 - (0x100000000 % 10000);
+    do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+    const pin = String(buf[0] % 10000).padStart(4, "0");
+
+    const salt = VAULT.randomBytes(16);
+    const nonce = VAULT.randomBytes(12);
+    const key = await derivePinKey(pin, salt);
+    const plain = VAULT.utf8(JSON.stringify({
+      v: 1,
+      token: plainToken,
+      gistId: syncState.gistId,
+    }));
+    const ct = new Uint8Array(await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: nonce }, key, plain));
+
+    // 打包：[1 字节版本 | 16 字节盐 | 12 字节 nonce | ct...]
+    const out = new Uint8Array(1 + salt.length + nonce.length + ct.length);
+    out[0] = 1;
+    out.set(salt, 1);
+    out.set(nonce, 1 + salt.length);
+    out.set(ct, 1 + salt.length + nonce.length);
+    return { pin, fragment: b64u(out) };
+  }
+
+  // 扫码端：用 fragment + pin 解出 {token, gistId}
+  async function decodePairPayload(fragment, pin) {
+    let raw;
+    try { raw = unb64u(fragment); }
+    catch { throw new Error("配对码格式错误"); }
+    if (raw.length < 1 + 16 + 12 + 16) throw new Error("配对码长度不足");
+    if (raw[0] !== 1) throw new Error("配对码版本不支持");
+    const salt = raw.slice(1, 17);
+    const nonce = raw.slice(17, 29);
+    const ct = raw.slice(29);
+    const key = await derivePinKey(pin, salt);
+    let plain;
+    try {
+      plain = new Uint8Array(await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: nonce }, key, ct));
+    } catch {
+      throw new Error("PIN 错误或配对码已损坏");
+    }
+    const obj = JSON.parse(VAULT.fromUtf8(plain));
+    if (!obj.token || !obj.gistId) throw new Error("配对码内容不完整");
+    return { token: obj.token, gistId: obj.gistId };
+  }
+
   Object.assign(VAULT, {
     SYNC: {
       isConfigured, getMeta, getLastSyncAt,
       onStatus,
       attach, detach, isReady,
-      enable, disable, rekey,
+      enable, disable, rekey, deleteRemoteGist,
       pull, applyRemoteEtag,
       pushNow, forcePush, schedulePush,
       fetchOnly, completeRestore,
       validateToken, fetchGist,
+      checkTokenHealth, replaceToken,
+      createPairPayload, decodePairPayload,
     },
   });
 })(window);
