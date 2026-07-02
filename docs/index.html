@@ -9,14 +9,14 @@
 <body>
 <header>
   <h1>🔐 密码保险库</h1>
-  <p class="tagline">所有运算在浏览器本地完成，可选用 GitHub Gist 跨设备同步</p>
+  <p class="tagline">本地加密，可选 Gist 同步</p>
 </header>
 
 <!-- ============ 解锁/设置界面 ============ -->
 <section id="gate" class="card">
   <div id="gate-setup">
-    <h2>设置主密码</h2>
-    <p class="hint">首次使用。主密码用于加密所有站点密码 —— 它<b>不会被存储</b>，也无法找回。请务必牢记。</p>
+    <h2>🔑 设置主密码</h2>
+    <p class="hint">主密码不会保存，遗忘无法恢复。</p>
     <label>主密码
       <input type="password" id="setup-pw1" autocomplete="new-password" placeholder="至少 12 个字符">
     </label>
@@ -25,25 +25,25 @@
     </label>
     <div id="setup-meter" class="meter"></div>
     <label class="check"><input type="checkbox" id="setup-show"> 显示输入</label>
-    <button id="setup-btn" class="primary">创建保险库</button>
+    <button id="setup-btn" class="primary">🔐 创建保险库</button>
     <div id="setup-status" class="status"></div>
     <hr>
     <p class="hint small">
-      已有其他设备的保险库？<br>
-      · <a href="#" id="pair-link">📱 用配对码接入（推荐）</a><br>
-      · <a href="#" id="restore-link">手动填 Token + Gist ID 接入</a>
+      已有保险库？<br>
+      · <a href="#" id="pair-link">📱 配对接入</a><br>
+      · <a href="#" id="restore-link">Token + Gist ID 恢复</a>
     </p>
   </div>
 
   <div id="gate-unlock" hidden>
-    <h2>解锁保险库</h2>
+    <h2>🔓 解锁保险库</h2>
     <label>主密码
       <input type="password" id="unlock-pw" autocomplete="current-password" placeholder="输入主密码">
     </label>
     <label class="check"><input type="checkbox" id="unlock-show"> 显示输入</label>
-    <button id="unlock-btn" class="primary">解锁</button>
+    <button id="unlock-btn" class="primary">🔓 解锁</button>
     <div id="unlock-status" class="status"></div>
-    <p class="hint small">忘记主密码 = 数据无法恢复。可<a href="#" id="reset-link">重置保险库</a>（将清除所有数据）。</p>
+    <p class="hint small">忘记主密码只能<a href="#" id="reset-link">重置保险库</a>。</p>
   </div>
 </section>
 
@@ -52,18 +52,18 @@
   <div id="sync-badge" class="sync-badge" hidden></div>
   <div class="toolbar">
     <input type="search" id="search" placeholder="搜索站点…" autocomplete="off">
-    <button id="add-btn" class="primary">+ 添加</button>
-    <button id="lock-btn">锁定</button>
+    <button id="add-btn" class="primary">➕ 添加</button>
+    <button id="lock-btn">🔒 锁定</button>
     <button id="menu-btn" title="设置">⚙</button>
   </div>
   <div id="entries" class="entries"></div>
-  <div id="empty-hint" class="empty" hidden>暂无条目。点「+ 添加」创建第一个。</div>
+  <div id="empty-hint" class="empty" hidden>暂无条目。点「➕ 添加」创建第一个。</div>
 </main>
 
 <!-- ============ 添加/编辑条目 ============ -->
 <dialog id="entry-dialog">
   <form method="dialog" id="entry-form">
-    <h3 id="entry-title">添加条目</h3>
+    <h3 id="entry-title">➕ 添加条目</h3>
     <label>站点名称
       <input type="text" id="e-name" required placeholder="如 github.com">
     </label>
@@ -97,14 +97,14 @@
 <!-- ============ 设置菜单 ============ -->
 <dialog id="menu-dialog">
   <form method="dialog">
-    <h3>设置</h3>
-    <button type="button" id="m-sync" class="full">☁ 云同步设置</button>
-    <button type="button" id="m-change" class="full">修改主密码</button>
-    <button type="button" id="m-export" class="full">导出备份（密文）</button>
-    <label class="full">导入备份
+    <h3>⚙ 设置</h3>
+    <button type="button" id="m-sync" class="full">☁ 云同步</button>
+    <button type="button" id="m-change" class="full">🔑 修改主密码</button>
+    <button type="button" id="m-export" class="full">⬇ 导出备份</button>
+    <label class="full">⬆ 导入备份
       <input type="file" id="m-import-file" accept=".json,application/json">
     </label>
-    <button type="button" id="m-reset" class="full danger">重置保险库（清除全部）</button>
+    <button type="button" id="m-reset" class="full danger">🗑 重置保险库</button>
     <div class="dialog-actions"><button type="button" id="m-close" class="primary">关闭</button></div>
   </form>
 </dialog>
@@ -112,14 +112,14 @@
 <!-- ============ 修改主密码 ============ -->
 <dialog id="change-dialog">
   <form method="dialog" id="change-form">
-    <h3>修改主密码</h3>
+    <h3>🔑 修改主密码</h3>
     <label>当前主密码 <input type="password" id="c-old" autocomplete="current-password"></label>
     <label>新主密码 <input type="password" id="c-new1" autocomplete="new-password"></label>
     <label>确认新主密码 <input type="password" id="c-new2" autocomplete="new-password"></label>
     <div id="c-status" class="status"></div>
     <div class="dialog-actions">
       <button type="button" id="c-cancel">取消</button>
-      <button type="submit" class="primary">确认修改</button>
+      <button type="submit" class="primary">✅ 确认修改</button>
     </div>
   </form>
 </dialog>
@@ -127,46 +127,43 @@
 <!-- ============ 云同步配置 ============ -->
 <dialog id="sync-dialog">
   <form method="dialog" id="sync-form">
-    <h3>云同步（GitHub Gist）</h3>
+    <h3>☁ 云同步</h3>
 
     <!-- 未启用时显示 -->
     <div id="sync-off">
       <p class="hint">
-        将加密后的保险库存到你自己的 <b>私有 GitHub Gist</b>，实现跨设备同步。
-        Gist 内容始终是密文，GitHub 看不到任何明文。
+        同步到私有 Gist，上传内容始终是密文。
       </p>
       <label>Personal Access Token
         <input type="password" id="sync-token" autocomplete="off"
                placeholder="ghp_ / github_pat_ 开头">
       </label>
       <p class="hint small">
-        在 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">
-        GitHub → Settings → Developer settings → Fine-grained tokens</a>
-        创建，仅需勾选 <b>Gists: Read and write</b> 权限。
+        在 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">GitHub 设置</a>
+        创建有 <b>Gists: Read and write</b> 权限的 Token。
       </p>
-      <label>Gist ID <span class="dim">（可选，已有则复用；留空则自动创建）</span>
+      <label>Gist ID <span class="dim">（留空新建）</span>
         <input type="text" id="sync-gistid" autocomplete="off" placeholder="留空 = 创建新 Gist">
       </label>
       <div id="sync-off-status" class="status"></div>
       <div class="dialog-actions">
         <button type="button" id="sync-cancel">取消</button>
-        <button type="button" id="sync-enable" class="primary">启用同步</button>
+        <button type="button" id="sync-enable" class="primary">✅ 启用同步</button>
       </div>
     </div>
 
     <!-- 已启用时显示 -->
     <div id="sync-on" hidden>
       <p class="hint">
-        云同步已启用。<br>
         <b>Gist ID：</b><code id="sync-info-gistid"></code><br>
-        <b>Token 状态：</b><span id="sync-info-token">检测中…</span><br>
-        <b>上次同步：</b><span id="sync-info-time"></span>
+        <b>Token：</b><span id="sync-info-token">检测中…</span><br>
+        <b>上次：</b><span id="sync-info-time"></span>
       </p>
       <div id="sync-on-status" class="status"></div>
       <div class="dialog-actions" style="flex-wrap: wrap; gap: 8px;">
         <button type="button" id="sync-add-device" class="primary">📱 添加新设备</button>
-        <button type="button" id="sync-pull">立即拉取</button>
-        <button type="button" id="sync-push">立即推送</button>
+        <button type="button" id="sync-pull">⬇ 立即拉取</button>
+        <button type="button" id="sync-push">⬆ 立即推送</button>
         <button type="button" id="sync-replace-token">🔄 更换 Token</button>
         <button type="button" id="sync-disable" class="danger">关闭同步</button>
         <button type="button" id="sync-close-on">关闭</button>
@@ -180,21 +177,20 @@
   <form method="dialog">
     <h3>📱 添加新设备</h3>
     <p class="hint">
-      在<b>新设备</b>上扫描 QR 码或打开链接，然后输入下方 <b>PIN 码</b> 与主密码即可接入。
-      配对码 <b>30 秒后失效</b>，且一次生成一次一变。
+      新设备扫码或打开链接，输入 PIN 和主密码。30 秒内有效。
     </p>
     <div id="pair-qr" class="pair-qr"></div>
     <div class="pair-pin-box">
       <div class="pair-pin-label">配对 PIN</div>
-      <div class="pair-pin" id="pair-pin">- - - -</div>
+      <div class="pair-pin" id="pair-pin">- - - - - -</div>
     </div>
     <div class="pair-url-row">
       <input type="text" id="pair-url" readonly>
-      <button type="button" id="pair-copy">复制链接</button>
+      <button type="button" id="pair-copy">📋 复制链接</button>
     </div>
     <div id="pair-countdown" class="hint small"></div>
     <div class="dialog-actions">
-      <button type="button" id="pair-regen">重新生成</button>
+      <button type="button" id="pair-regen">🔄 重新生成</button>
       <button type="button" id="pair-close" class="primary">关闭</button>
     </div>
   </form>
@@ -205,12 +201,12 @@
   <form method="dialog">
     <h3>⚠ 同步冲突</h3>
     <p class="hint">
-      检测到<b>远端 Gist 与本地不一致</b>——你可能在另一台设备上修改过。请选择处理方式：
+      远端与本地都有变更。请选择处理方式：
     </p>
     <div class="dialog-actions" style="flex-direction: column; align-items: stretch;">
       <button type="button" id="cf-pull" class="full">拉取远端 → 覆盖本地（推荐）</button>
       <button type="button" id="cf-push" class="full danger">本地覆盖远端（放弃远端变更）</button>
-      <button type="button" id="cf-later" class="full">稍后处理（保持本地未同步）</button>
+      <button type="button" id="cf-later" class="full">稍后处理</button>
     </div>
   </form>
 </dialog>
@@ -218,12 +214,9 @@
 <!-- ============ 从 Gist 恢复 ============ -->
 <dialog id="restore-dialog">
   <form method="dialog" id="restore-form">
-    <h3>从 GitHub Gist 恢复</h3>
+    <h3>☁ 从 Gist 恢复</h3>
     <p class="hint">
-      从另一台已启用云同步的设备接入。你需要：<br>
-      1. 该设备的 <b>Gist ID</b><br>
-      2. 一个有 <b>Gists</b> 权限的 GitHub PAT<br>
-      3. 创建保险库时的 <b>主密码</b>
+      输入 Token、Gist ID 和主密码。
     </p>
     <label>Personal Access Token
       <input type="password" id="r-token" autocomplete="off">
@@ -237,7 +230,7 @@
     <div id="r-status" class="status"></div>
     <div class="dialog-actions">
       <button type="button" id="r-cancel">取消</button>
-      <button type="button" id="r-go" class="primary">恢复</button>
+      <button type="button" id="r-go" class="primary">☁ 恢复</button>
     </div>
   </form>
 </dialog>
@@ -247,16 +240,14 @@
   <form method="dialog" id="accept-form">
     <h3>📱 用配对码接入</h3>
     <p class="hint">
-      在源设备打开「设置 → 云同步 → 📱 添加新设备」，然后：<br>
-      · 扫码打开的链接会自动填入 <b>配对码</b>；<br>
-      · 或将链接粘贴到下方，再输入源设备屏幕上显示的 <b>4 位 PIN</b>。
+      粘贴配对链接，输入源设备显示的 6 位 PIN。
     </p>
-    <label>配对链接 <span class="dim">（扫码自动填入，或手动粘贴）</span>
+    <label>配对链接
       <input type="text" id="a-url" autocomplete="off" placeholder="https://.../#pair=...">
     </label>
     <label>PIN 码
-      <input type="text" id="a-pin" inputmode="numeric" pattern="\d{4}" maxlength="4"
-             autocomplete="off" placeholder="4 位数字">
+      <input type="text" id="a-pin" inputmode="numeric" pattern="\d{6}" maxlength="6"
+             autocomplete="off" placeholder="6 位数字">
     </label>
     <label>主密码
       <input type="password" id="a-master" autocomplete="current-password">
@@ -264,7 +255,7 @@
     <div id="a-status" class="status"></div>
     <div class="dialog-actions">
       <button type="button" id="a-cancel">取消</button>
-      <button type="button" id="a-go" class="primary">接入</button>
+      <button type="button" id="a-go" class="primary">📱 接入</button>
     </div>
   </form>
 </dialog>
@@ -274,8 +265,7 @@
   <form method="dialog">
     <h3>🔄 更换 Personal Access Token</h3>
     <p class="hint">
-      粘贴新的 GitHub Fine-grained PAT（需 <b>Gists: Read and write</b> 权限）。
-      Gist ID 不会改变——新 Token 必须能访问<b>当前 Gist</b>，否则不予保存。
+      新 Token 需能访问当前 Gist。
     </p>
     <label>新 Token
       <input type="password" id="rt-token" autocomplete="off"
@@ -283,14 +273,12 @@
     </label>
     <p class="hint small">
       在 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">GitHub 设置</a>
-      创建新 token。旧 token 若已泄露/过期，请到
-      <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">token 列表</a>
-      吊销。
+      创建有 Gists 权限的 Token。
     </p>
     <div id="rt-status" class="status"></div>
     <div class="dialog-actions">
       <button type="button" id="rt-cancel">取消</button>
-      <button type="button" id="rt-go" class="primary">验证并更换</button>
+      <button type="button" id="rt-go" class="primary">✅ 验证并更换</button>
     </div>
   </form>
 </dialog>
@@ -300,24 +288,22 @@
   <form method="dialog">
     <h3>⚠️ 重置保险库</h3>
     <p class="hint">
-      此操作会<b>清除本设备</b>浏览器中的所有保险库数据（条目、主密码验证器、同步凭证）。
-      本地数据一经删除<b>无法恢复</b>。请选择处理方式：
+      将清除本设备数据。请选择处理方式：
     </p>
     <p id="reset-remote-note" class="hint small" hidden>
-      本设备已启用云同步。你可以只清本地（云端保留，将来可在别处恢复），
-      或同时删除云端 Gist（一同永久销毁）。
+      云端 Gist 可保留，也可一并删除。
     </p>
     <div id="reset-status" class="status"></div>
     <div class="dialog-actions" style="flex-direction: column; align-items: stretch;">
-      <button type="button" id="reset-local" class="full danger">仅清本地（保留云端 Gist）</button>
-      <button type="button" id="reset-both" class="full danger" hidden>同时删除云端 Gist（永久销毁）</button>
+      <button type="button" id="reset-local" class="full danger">🧹 仅清本地（保留云端 Gist）</button>
+      <button type="button" id="reset-both" class="full danger" hidden>🗑 同时删除云端 Gist（永久销毁）</button>
       <button type="button" id="reset-cancel" class="full">取消</button>
     </div>
   </form>
 </dialog>
 
 <footer>
-  <p class="warn">⚠️ 主密码遗忘 = 数据无法恢复，请务必牢记并定期导出备份。</p>
+  <p class="warn">主密码遗忘无法恢复。</p>
 </footer>
 
 <script src="vault/crypto.js"></script>

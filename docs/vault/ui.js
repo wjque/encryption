@@ -46,8 +46,15 @@
   function setStatus(id, msg, kind) {
     const el = $(id);
     if (!el) return;
-    el.textContent = msg;
+    el.textContent = decorateStatus(msg, kind);
     el.className = "status" + (kind ? " " + kind : "");
+  }
+  function decorateStatus(msg, kind) {
+    if (!msg) return "";
+    if (kind === "ok" && !/^[✅✓]/.test(msg)) return "✅ " + msg;
+    if (kind === "err" && !/^[❌⚠]/.test(msg)) return "❌ " + msg;
+    if (!kind && /^正在/.test(msg)) return "⏳ " + msg;
+    return msg;
   }
   function renderMeter(meterId, password) {
     const el = $(meterId);
@@ -79,15 +86,15 @@
   $("setup-pw1").addEventListener("input", () => renderMeter("setup-meter", $("setup-pw1").value));
   $("setup-btn").addEventListener("click", async () => {
     const p1 = $("setup-pw1").value, p2 = $("setup-pw2").value;
-    if (p1.length < 12) return setStatus("setup-status", "❌ 主密码至少 12 个字符", "err");
-    if (p1 !== p2) return setStatus("setup-status", "❌ 两次输入不一致", "err");
-    setStatus("setup-status", "正在创建保险库…", "");
+    if (p1.length < 12) return setStatus("setup-status", "主密码至少 12 个字符", "err");
+    if (p1 !== p2) return setStatus("setup-status", "两次输入不一致", "err");
+    setStatus("setup-status", "正在创建…", "");
     $("setup-btn").disabled = true;
     try {
       await V.setup(p1);
       enterApp({ initialPull: false });
     } catch (e) {
-      setStatus("setup-status", "❌ " + e.message, "err");
+      setStatus("setup-status", e.message, "err");
     } finally {
       $("setup-btn").disabled = false;
     }
@@ -98,14 +105,14 @@
     $("unlock-pw").type = e.target.checked ? "text" : "password";
   });
   $("unlock-btn").addEventListener("click", async () => {
-    setStatus("unlock-status", "正在解锁…（派生密钥）", "");
+    setStatus("unlock-status", "正在解锁…", "");
     $("unlock-btn").disabled = true;
     try {
       await V.unlock($("unlock-pw").value);
       $("unlock-pw").value = "";
       enterApp({ initialPull: true });
     } catch (e) {
-      setStatus("unlock-status", "❌ " + e.message, "err");
+      setStatus("unlock-status", e.message, "err");
     } finally {
       $("unlock-btn").disabled = false;
     }
@@ -129,7 +136,7 @@
       if (r.status === "remote-newer") {
         // 首次拉取到远端更新 → 直接应用（本地是同一账号的历史副本）
         try {
-          V.applyRemoteVault(r.content);
+          await V.applyRemoteVault(r.content);
           S.applyRemoteEtag(r.etag);
           renderEntries($("search").value);
         } catch (e) {
@@ -218,7 +225,7 @@
           await navigator.clipboard.writeText(pw);
           const b = div.querySelector(".copy");
           const old = b.textContent;
-          b.textContent = "已复制✓";
+          b.textContent = "✅ 已复制";
           setTimeout(() => (b.textContent = old), 1200);
           setTimeout(() => { navigator.clipboard.writeText("").catch(() => {}); }, 30000);
         } catch (err) { alert("复制失败：" + err.message); }
@@ -244,7 +251,7 @@
     const dlg = $("entry-dialog");
     if (id) {
       const e = V.listEntries().find(x => x.id === id);
-      $("entry-title").textContent = "编辑条目";
+      $("entry-title").textContent = "✏️ 编辑条目";
       $("e-name").value = e.name;
       $("e-user").value = e.username || "";
       $("e-pw").value = "";
@@ -254,7 +261,7 @@
         $("g-sym").checked = e.gen.symbol !== false;
       }
     } else {
-      $("entry-title").textContent = "添加条目";
+      $("entry-title").textContent = "➕ 添加条目";
       $("entry-form").reset();
       $("e-pw").placeholder = "手动输入或生成";
     }
@@ -316,15 +323,15 @@
   $("change-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const old = $("c-old").value, n1 = $("c-new1").value, n2 = $("c-new2").value;
-    if (n1.length < 12) return setStatus("c-status", "❌ 新主密码至少 12 个字符", "err");
-    if (n1 !== n2) return setStatus("c-status", "❌ 两次新密码不一致", "err");
-    setStatus("c-status", "正在重新加密所有条目…", "");
+    if (n1.length < 12) return setStatus("c-status", "新主密码至少 12 个字符", "err");
+    if (n1 !== n2) return setStatus("c-status", "两次输入不一致", "err");
+    setStatus("c-status", "正在更新…", "");
     try {
       await V.changeMaster(old, n1);
       $("change-dialog").close();
-      alert("主密码已修改，所有条目已用新密码重新加密。");
+      alert("主密码已修改。");
     } catch (err) {
-      setStatus("c-status", "❌ " + err.message, "err");
+      setStatus("c-status", err.message, "err");
     }
   });
 
@@ -345,7 +352,7 @@
     reader.onload = () => {
       try {
         V.importVault(reader.result);
-        alert("导入成功。请用导入文件的主密码解锁。");
+        alert("导入成功，请重新解锁。");
         $("menu-dialog").close();
         exitApp();
       } catch (err) { alert("导入失败：" + err.message); }
@@ -370,21 +377,20 @@
   $("reset-cancel").addEventListener("click", () => $("reset-dialog").close());
 
   $("reset-local").addEventListener("click", async () => {
-    if (!confirm("确定仅清除本地数据？云端 Gist 会保留。")) return;
+    if (!confirm("清除本地数据？")) return;
     await V.reset({ deleteRemote: false });
     location.reload();
   });
 
   $("reset-both").addEventListener("click", async () => {
-    if (!confirm("确定同时删除云端 Gist？此操作不可撤销，所有设备的同步数据都会失效。")) return;
-    setStatus("reset-status", "正在删除云端 Gist…", "");
+    if (!confirm("同时删除云端 Gist？")) return;
+    setStatus("reset-status", "正在删除云端…", "");
     $("reset-both").disabled = true;
     $("reset-local").disabled = true;
     const r = await V.reset({ deleteRemote: true });
     if (r.remoteError) {
       // 远端删除失败：本地已清（reset() 无论如何都清本地），提示用户手动去 GitHub 处理
-      alert("本地已清除，但云端 Gist 删除失败：" + r.remoteError +
-            "\n请手动到 https://gist.github.com 删除对应 Gist。");
+      alert("云端删除失败：" + r.remoteError);
     }
     location.reload();
   });
@@ -402,13 +408,13 @@
     el.hidden = false;
     let text, cls;
     switch (status) {
-      case "syncing": text = "⟳ 同步中…"; cls = "syncing"; break;
-      case "pending": text = "· 待同步"; cls = "pending"; break;
-      case "conflict": text = "⚠ 冲突，点击处理"; cls = "err"; break;
-      case "error": text = "⚠ 同步失败"; cls = "err"; break;
+      case "syncing": text = "🔄 同步中…"; cls = "syncing"; break;
+      case "pending": text = "⏳ 待同步"; cls = "pending"; break;
+      case "conflict": text = "⚠️ 冲突，点击处理"; cls = "err"; break;
+      case "error": text = "⚠️ 同步失败"; cls = "err"; break;
       case "ok":
       default:
-        text = `✓ 已同步 ${fmtRelative(S.getLastSyncAt())}`;
+        text = `✅ 已同步 ${fmtRelative(S.getLastSyncAt())}`;
         cls = "ok";
     }
     el.textContent = "☁ " + text;
@@ -484,14 +490,14 @@
     const el = $("sync-info-token");
     if (!el) return;
     if (r.ok) {
-      el.innerHTML = `<span class="ok-text">✓ 有效</span>（GitHub 用户 <code>${escapeHtml(r.login)}</code>）`;
+      el.innerHTML = `<span class="ok-text">✅ 有效</span>（<code>${escapeHtml(r.login)}</code>）`;
     } else {
       const msg = {
-        "no-sync":        "同步未启用",
-        "no-token":       "内存中无 Token（请重新解锁）",
-        "token-invalid":  "❌ Token 无效或已过期 —— 请点「🔄 更换 Token」",
-        "gist-forbidden": "⚠ Token 有效，但无权访问当前 Gist",
-        "network":        `⚠ 网络错误：${r.error || ""}`,
+        "no-sync":        "⚪ 同步未启用",
+        "no-token":       "⚠️ 请重新解锁",
+        "token-invalid":  "❌ Token 无效或已过期",
+        "gist-forbidden": "⚠️ 无权访问当前 Gist",
+        "network":        `⚠️ 网络错误：${r.error || ""}`,
       }[r.reason] || "未知状态";
       el.innerHTML = `<span class="err-text">${escapeHtml(msg)}</span>`;
     }
@@ -505,22 +511,22 @@
   $("sync-enable").addEventListener("click", async () => {
     const token = $("sync-token").value.trim();
     const gistId = $("sync-gistid").value.trim();
-    if (!token) return setStatus("sync-off-status", "❌ 请填入 Personal Access Token", "err");
-    setStatus("sync-off-status", "正在校验并连接 GitHub…", "");
+    if (!token) return setStatus("sync-off-status", "请填入 Token", "err");
+    setStatus("sync-off-status", "正在连接…", "");
     $("sync-enable").disabled = true;
     try {
       const key = V.getMasterKey();
       if (!key) throw new Error("保险库未解锁");
       const encryptedJson = V.exportVault();
       const r = await S.enable(key, token, gistId || null, encryptedJson);
-      setStatus("sync-off-status", `✓ 已启用，Gist ID: ${r.gistId}`, "ok");
+      setStatus("sync-off-status", `已启用：${r.gistId}`, "ok");
       renderSyncBadge("ok");
       // 若填了已有 gistId，提示用户可能需要拉取远端
       if (gistId) {
         const pull = await S.pull();
         if (pull.status === "remote-newer") {
-          if (confirm("远端 Gist 有内容，是否用远端覆盖本地？（选否则用本地覆盖远端）")) {
-            V.applyRemoteVault(pull.content);
+          if (confirm("用远端覆盖本地？")) {
+            await V.applyRemoteVault(pull.content);
             S.applyRemoteEtag(pull.etag);
             renderEntries($("search").value);
           } else {
@@ -533,7 +539,7 @@
         openSyncDialog(); // 切到"已启用"视图
       }, 800);
     } catch (e) {
-      setStatus("sync-off-status", "❌ " + e.message, "err");
+      setStatus("sync-off-status", e.message, "err");
     } finally {
       $("sync-enable").disabled = false;
     }
@@ -543,24 +549,24 @@
     setStatus("sync-on-status", "正在拉取…", "");
     const r = await S.pull();
     if (r.status === "unchanged") {
-      setStatus("sync-on-status", "✓ 已是最新", "ok");
+      setStatus("sync-on-status", "已是最新", "ok");
     } else if (r.status === "remote-newer") {
       pendingConflictContent = { content: r.content, etag: r.etag };
       if (confirm("远端有更新，是否覆盖本地？")) {
         try {
-          V.applyRemoteVault(r.content);
+          await V.applyRemoteVault(r.content);
           S.applyRemoteEtag(r.etag);
           renderEntries($("search").value);
-          setStatus("sync-on-status", "✓ 已从远端更新本地", "ok");
+          setStatus("sync-on-status", "已更新", "ok");
           pendingConflictContent = null;
         } catch (e) {
-          setStatus("sync-on-status", "❌ " + e.message, "err");
+          setStatus("sync-on-status", e.message, "err");
         }
       } else {
         setStatus("sync-on-status", "已保留本地版本（下次推送需强制）", "");
       }
     } else if (r.status === "error") {
-      setStatus("sync-on-status", "❌ " + r.error, "err");
+      setStatus("sync-on-status", r.error, "err");
     }
     $("sync-info-time").textContent = fmtRelative(S.getLastSyncAt());
   });
@@ -569,20 +575,20 @@
     setStatus("sync-on-status", "正在推送…", "");
     const r = await S.pushNow(() => V.exportVault());
     if (r.status === "ok") {
-      setStatus("sync-on-status", "✓ 已推送", "ok");
+      setStatus("sync-on-status", "已推送", "ok");
     } else if (r.status === "conflict") {
       pendingConflictContent = { content: r.remote, etag: r.remoteEtag };
       setStatus("sync-on-status", "⚠ 冲突，请选择处理方式", "err");
       $("sync-dialog").close();
       $("conflict-dialog").showModal();
     } else if (r.status === "error") {
-      setStatus("sync-on-status", "❌ " + r.error, "err");
+      setStatus("sync-on-status", r.error, "err");
     }
     $("sync-info-time").textContent = fmtRelative(S.getLastSyncAt());
   });
 
   $("sync-disable").addEventListener("click", () => {
-    if (!confirm("关闭同步会清除本地保存的 Token 与 Gist ID。GitHub 上的 Gist 不会被删除。")) return;
+    if (!confirm("关闭同步？")) return;
     S.disable();
     renderSyncBadge();
     $("sync-dialog").close();
@@ -602,14 +608,14 @@
   });
   $("rt-go").addEventListener("click", async () => {
     const newToken = $("rt-token").value.trim();
-    if (!newToken) return setStatus("rt-status", "❌ 请粘贴新 Token", "err");
+    if (!newToken) return setStatus("rt-status", "请粘贴新 Token", "err");
     const key = V.getMasterKey();
-    if (!key) return setStatus("rt-status", "❌ 保险库未解锁", "err");
-    setStatus("rt-status", "正在验证新 Token 并检查 Gist 访问权限…", "");
+    if (!key) return setStatus("rt-status", "保险库未解锁", "err");
+    setStatus("rt-status", "正在验证…", "");
     $("rt-go").disabled = true;
     try {
       const r = await S.replaceToken(key, newToken);
-      setStatus("rt-status", `✓ 已更换（GitHub 用户 ${r.login}）`, "ok");
+      setStatus("rt-status", `已更换：${r.login}`, "ok");
       renderSyncBadge("ok");
       setTimeout(() => {
         $("rt-token").value = "";
@@ -617,7 +623,7 @@
         openSyncDialog();  // 回到同步设置，会重新检测 token 健康
       }, 800);
     } catch (e) {
-      setStatus("rt-status", "❌ " + e.message, "err");
+      setStatus("rt-status", e.message, "err");
     } finally {
       $("rt-go").disabled = false;
     }
@@ -658,13 +664,13 @@
     const tick = () => {
       if (left <= 0) {
         stopCountdown();
-        $("pair-pin").textContent = "- - - -";
-        $("pair-qr").innerHTML = '<div class="empty">配对码已过期，请重新生成</div>';
+        $("pair-pin").textContent = "- - - - - -";
+        $("pair-qr").innerHTML = '<div class="empty">已过期</div>';
         $("pair-url").value = "";
         $("pair-countdown").textContent = "已过期";
         return;
       }
-      $("pair-countdown").textContent = `剩余 ${left} 秒...`;
+      $("pair-countdown").textContent = `${left} 秒`;
       left--;
     };
     tick();
@@ -679,13 +685,13 @@
     if (!$("pair-url").value) return;
     navigator.clipboard.writeText($("pair-url").value).then(() => {
       const b = $("pair-copy"); const old = b.textContent;
-      b.textContent = "已复制 ✓";
+      b.textContent = "✅ 已复制";
       setTimeout(() => (b.textContent = old), 1200);
     });
   });
   $("pair-close").addEventListener("click", () => {
     stopCountdown();
-    $("pair-pin").textContent = "- - - -";  // 关闭时立刻清屏
+    $("pair-pin").textContent = "- - - - - -";
     $("pair-qr").innerHTML = "";
     $("pair-url").value = "";
     $("pair-dialog").close();
@@ -693,7 +699,7 @@
   // ESC 关闭 dialog 也要清理
   $("pair-dialog").addEventListener("close", () => {
     stopCountdown();
-    $("pair-pin").textContent = "- - - -";
+    $("pair-pin").textContent = "- - - - - -";
     $("pair-qr").innerHTML = "";
     $("pair-url").value = "";
   });
@@ -702,7 +708,7 @@
   $("cf-pull").addEventListener("click", async () => {
     if (!pendingConflictContent) return;
     try {
-      V.applyRemoteVault(pendingConflictContent.content);
+      await V.applyRemoteVault(pendingConflictContent.content);
       S.applyRemoteEtag(pendingConflictContent.etag);
       renderEntries($("search").value);
       pendingConflictContent = null;
@@ -739,15 +745,15 @@
     const gistId = $("r-gistid").value.trim();
     const master = $("r-master").value;
     if (!token || !gistId || !master)
-      return setStatus("r-status", "❌ 请填写全部字段", "err");
-    setStatus("r-status", "正在从 GitHub 拉取…", "");
+      return setStatus("r-status", "请填写全部字段", "err");
+    setStatus("r-status", "正在拉取…", "");
     $("r-go").disabled = true;
     try {
       const r = await S.fetchOnly(token, gistId);
       // 写入 localStorage 作为当前 vault
-      V.applyRemoteVault(r.content);
+      await V.applyRemoteVault(r.content);
       // 尝试用主密码解锁
-      setStatus("r-status", "正在派生密钥并解锁…", "");
+      setStatus("r-status", "正在解锁…", "");
       await V.unlock(master);
       const key = V.getMasterKey();
       // 用主密钥加密 PAT，写入 sync 元数据
@@ -756,7 +762,7 @@
       $("r-token").value = ""; $("r-master").value = "";
       enterApp({ initialPull: false });
     } catch (e) {
-      setStatus("r-status", "❌ " + e.message, "err");
+      setStatus("r-status", e.message, "err");
       // 恢复失败：如果已经写了本地 vault，回滚
       if (V.exists() && !V.isUnlocked()) V.reset();
     } finally {
@@ -804,9 +810,9 @@
     const pin = $("a-pin").value.trim();
     const master = $("a-master").value;
     const fragment = extractPairFragment(url);
-    if (!fragment) return setStatus("a-status", "❌ 配对链接格式错误", "err");
-    if (!/^\d{4}$/.test(pin)) return setStatus("a-status", "❌ PIN 必须是 4 位数字", "err");
-    if (!master) return setStatus("a-status", "❌ 请输入主密码", "err");
+    if (!fragment) return setStatus("a-status", "配对链接格式错误", "err");
+    if (!/^\d{6}$/.test(pin)) return setStatus("a-status", "PIN 必须是 6 位数字", "err");
+    if (!master) return setStatus("a-status", "请输入主密码", "err");
 
     setStatus("a-status", "正在解密配对码…", "");
     $("a-go").disabled = true;
@@ -814,11 +820,11 @@
       // 1) 解 pair payload 拿到 token + gistId
       const { token, gistId } = await S.decodePairPayload(fragment, pin);
       // 2) 从 Gist 拉取加密的 vault
-      setStatus("a-status", "正在从 GitHub 拉取保险库…", "");
+      setStatus("a-status", "正在拉取…", "");
       const r = await S.fetchOnly(token, gistId);
       // 3) 写入本地 + 用主密码解锁
-      V.applyRemoteVault(r.content);
-      setStatus("a-status", "正在派生密钥并解锁…", "");
+      await V.applyRemoteVault(r.content);
+      setStatus("a-status", "正在解锁…", "");
       await V.unlock(master);
       const key = V.getMasterKey();
       // 4) 用主密钥加密 token 落盘，进入主界面
@@ -828,7 +834,7 @@
       history.replaceState(null, "", location.pathname);
       enterApp({ initialPull: false });
     } catch (e) {
-      setStatus("a-status", "❌ " + e.message, "err");
+      setStatus("a-status", e.message, "err");
       // 部分失败清理：若已写入本地但未解锁成功，回滚
       if (V.exists() && !V.isUnlocked()) V.reset();
     } finally {
@@ -843,12 +849,13 @@
     const fragment = m[1];
     // 若已存在保险库，先提示
     if (V.exists()) {
-      if (!confirm("检测到配对链接。是否接入并覆盖本设备当前的保险库？")) {
+      if (!confirm("用配对数据覆盖本地？")) {
         history.replaceState(null, "", location.pathname);
         return false;
       }
       V.reset();
     }
+    history.replaceState(null, "", location.pathname);
     // 打开配对接入对话框，预填 fragment
     openAcceptDialog(fragment);
     return true;

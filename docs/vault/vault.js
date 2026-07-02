@@ -3,49 +3,89 @@
 //
 // 存储布局（localStorage["rsa-vault"]）：
 //   {
-//     version: 1,
+//     version: 2,
 //     kdf: { salt, iterations },
-//     verifier: { nonce, ct },          // 用于校验主密码
-//     entries: [ { id, name, username, ct:{nonce,ct}, created, updated, gen } ]
+//     verifier: { nonce, ct },
+//     entries: [
+//       { id, meta:{nonce,ct}, secret:{nonce,ct}, created, updated }
+//     ]
 //   }
 //
-// 仅存密文与公开参数；主密码永不落盘，密钥仅按需派生、驻留内存。
+// meta 加密保存 { name, username, gen }；secret 单独保存密码。
+// 解锁后只缓存 meta，密码仍按需解密。
 // ============================================================
 (function (global) {
   "use strict";
   const VAULT = (global.VAULT || {});
   const STORE_KEY = "rsa-vault";
-  const VERSION = 1;
-  const C = VAULT; // crypto 命名空间别名
+  const VERSION = 2;
+  const C = VAULT;
 
-  let state = null;    // { meta, entries, key }  解锁后含派生密钥
-  let key = null;      // 当前派生的 AES-GCM 密钥（仅内存）
+  let state = null;
+  let key = null;
+  let metaCache = new Map();
 
-  // 触发防抖同步：所有会改变 vault 内容的操作在结尾调用它
   function triggerSync() {
     if (VAULT.SYNC && VAULT.SYNC.isReady()) {
       VAULT.SYNC.schedulePush(exportVault);
     }
   }
 
-  // 获取当前主密钥（供 sync 层加密 PAT / 恢复流程等使用）
   function getMasterKey() { return key; }
 
-  // --- 原始读写 ---
   function readRaw() {
     try {
       const s = localStorage.getItem(STORE_KEY);
       return s ? JSON.parse(s) : null;
     } catch { return null; }
   }
+
   function writeRaw(obj) {
     localStorage.setItem(STORE_KEY, JSON.stringify(obj));
   }
+
   function exists() { return readRaw() !== null; }
 
-  // --- 初始化新保险库（首次设置主密码）---
+  function validateVault(obj, label = "保险库") {
+    if (!obj || obj.version !== VERSION || !obj.kdf || !obj.verifier || !Array.isArray(obj.entries)) {
+      throw new Error(`${label}格式不正确或版本不支持`);
+    }
+    for (const e of obj.entries) {
+      if (!e.id || !e.meta || !e.secret) {
+        throw new Error(`${label}条目格式不正确`);
+      }
+    }
+  }
+
+  function normalizeMeta(meta) {
+    return {
+      name: String(meta.name || "").trim(),
+      username: String(meta.username || "").trim(),
+      gen: meta.gen || null,
+    };
+  }
+
+  async function encryptMeta(masterKey, meta) {
+    return C.encryptStr(masterKey, JSON.stringify(normalizeMeta(meta)));
+  }
+
+  async function decryptMeta(masterKey, entry) {
+    const raw = await C.decryptStr(masterKey, entry.meta.nonce, entry.meta.ct);
+    const meta = normalizeMeta(JSON.parse(raw));
+    if (!meta.name) throw new Error("条目名称为空");
+    return meta;
+  }
+
+  async function hydrateMetaCache(vault) {
+    const next = new Map();
+    for (const e of vault.entries) {
+      next.set(e.id, await decryptMeta(key, e));
+    }
+    metaCache = next;
+  }
+
   async function setup(masterPassword, iterations = C.KDF.iterations) {
-    if (exists()) throw new Error("保险库已存在；请先解锁或重置");
+    if (exists()) throw new Error("保险库已存在");
     const salt = C.randomBytes(16);
     key = await C.deriveKey(masterPassword, salt, iterations);
     const verifier = await C.makeVerifier(key);
@@ -57,112 +97,138 @@
     };
     writeRaw(vault);
     state = vault;
+    metaCache = new Map();
     return vault;
   }
 
-  // --- 解锁：校验主密码，派生并驻留密钥 ---
   async function unlock(masterPassword) {
     const vault = readRaw();
     if (!vault) throw new Error("尚未创建保险库");
+    validateVault(vault);
     const salt = C.unb64(vault.kdf.salt);
     const candidate = await C.deriveKey(masterPassword, salt, vault.kdf.iterations);
-    if (!(await C.checkVerifier(candidate, vault.verifier)))
+    if (!(await C.checkVerifier(candidate, vault.verifier))) {
       throw new Error("主密码错误");
+    }
     key = candidate;
     state = vault;
+    try {
+      await hydrateMetaCache(vault);
+    } catch {
+      key = null;
+      state = null;
+      metaCache = new Map();
+      throw new Error("保险库数据解密失败");
+    }
     if (VAULT.SYNC) await VAULT.SYNC.attach(key);
     return vault;
   }
 
-  // --- 锁定：丢弃密钥与内存状态 ---
   function lock() {
     key = null;
     state = null;
+    metaCache = new Map();
     if (VAULT.SYNC) VAULT.SYNC.detach();
   }
+
   function isUnlocked() { return key !== null; }
 
-  // --- 条目列表（明文 name/username，密文密码）---
   function listEntries() {
     if (!state) return [];
-    return state.entries.map(e => ({
-      id: e.id, name: e.name, username: e.username,
-      created: e.created, updated: e.updated, gen: e.gen,
-    }));
+    return state.entries.map(e => {
+      const meta = metaCache.get(e.id) || { name: "", username: "", gen: null };
+      return {
+        id: e.id,
+        name: meta.name,
+        username: meta.username,
+        gen: meta.gen,
+        created: e.created,
+        updated: e.updated,
+      };
+    });
   }
 
-  // --- 添加条目 ---
   async function addEntry({ name, username, password, gen }) {
     requireUnlocked();
-    if (!name || !password) throw new Error("站点名和密码不能为空");
-    const enc = await C.encryptStr(key, password);
+    const meta = normalizeMeta({ name, username, gen });
+    if (!meta.name || !password) throw new Error("站点名和密码不能为空");
     const now = Date.now();
     const entry = {
       id: crypto.randomUUID(),
-      name: name.trim(),
-      username: (username || "").trim(),
-      ct: enc,
-      gen: gen || null,
-      created: now, updated: now,
+      meta: await encryptMeta(key, meta),
+      secret: await C.encryptStr(key, password),
+      created: now,
+      updated: now,
     };
     state.entries.push(entry);
+    metaCache.set(entry.id, meta);
     persist();
     triggerSync();
     return entry.id;
   }
 
-  // --- 更新条目 ---
   async function updateEntry(id, { name, username, password, gen }) {
     requireUnlocked();
     const e = state.entries.find(x => x.id === id);
     if (!e) throw new Error("条目不存在");
-    if (name !== undefined) e.name = name.trim();
-    if (username !== undefined) e.username = (username || "").trim();
+    const current = metaCache.get(id) || await decryptMeta(key, e);
+    const nextMeta = normalizeMeta({
+      name: name !== undefined ? name : current.name,
+      username: username !== undefined ? username : current.username,
+      gen: gen !== undefined ? gen : current.gen,
+    });
+    if (!nextMeta.name) throw new Error("站点名不能为空");
+    e.meta = await encryptMeta(key, nextMeta);
     if (password !== undefined && password !== null) {
-      e.ct = await C.encryptStr(key, password);
+      e.secret = await C.encryptStr(key, password);
     }
-    if (gen !== undefined) e.gen = gen || null;
     e.updated = Date.now();
+    metaCache.set(id, nextMeta);
     persist();
     triggerSync();
   }
 
-  // --- 解密单条密码（按需）---
   async function decryptPassword(id) {
     requireUnlocked();
     const e = state.entries.find(x => x.id === id);
     if (!e) throw new Error("条目不存在");
-    return C.decryptStr(key, e.ct.nonce, e.ct.ct);
+    return C.decryptStr(key, e.secret.nonce, e.secret.ct);
   }
 
-  // --- 删除条目 ---
   function deleteEntry(id) {
     requireUnlocked();
     const i = state.entries.findIndex(x => x.id === id);
     if (i < 0) throw new Error("条目不存在");
     const [removed] = state.entries.splice(i, 1);
+    metaCache.delete(id);
     persist();
     triggerSync();
     return removed;
   }
 
-  // --- 修改主密码：用旧密钥解密所有密码，用新密钥重新加密 ---
   async function changeMaster(oldPassword, newPassword, iterations = C.KDF.iterations) {
     requireUnlocked();
-    // 校验旧密码（再次验证，防误操作）
     const vault = readRaw();
+    validateVault(vault);
     const oldSalt = C.unb64(vault.kdf.salt);
     const oldCheck = await C.deriveKey(oldPassword, oldSalt, vault.kdf.iterations);
-    if (!(await C.checkVerifier(oldCheck, vault.verifier)))
+    if (!(await C.checkVerifier(oldCheck, vault.verifier))) {
       throw new Error("旧主密码错误");
+    }
 
-    // 用新主密码派生新密钥
     const newSalt = C.randomBytes(16);
     const newKey = await C.deriveKey(newPassword, newSalt, iterations);
     const newEntries = [];
+    const newMetaCache = new Map();
     for (const e of state.entries) {
-      const plain = await C.decryptStr(key, e.ct.nonce, e.ct.ct);
-      newEntries.push({ ...e, ct: await C.encryptStr(newKey, plain) });
+      const meta = metaCache.get(e.id) || await decryptMeta(key, e);
+      const plain = await C.decryptStr(key, e.secret.nonce, e.secret.ct);
+      newEntries.push({
+        ...e,
+        meta: await encryptMeta(newKey, meta),
+        secret: await C.encryptStr(newKey, plain),
+      });
+      newMetaCache.set(e.id, meta);
     }
     const newVault = {
       version: VERSION,
@@ -173,47 +239,42 @@
     writeRaw(newVault);
     key = newKey;
     state = newVault;
-    // 修改主密码后，需用新密钥重新加密 sync 层保存的 PAT
+    metaCache = newMetaCache;
     if (VAULT.SYNC) await VAULT.SYNC.rekey(newKey);
     triggerSync();
   }
 
-  // --- 导出（加密的完整备份，仍是密文）---
   function exportVault() {
     const v = readRaw();
     if (!v) throw new Error("无保险库可导出");
     return JSON.stringify(v, null, 2);
   }
 
-  // --- 导入 ---
   function importVault(jsonStr) {
     let obj;
     try { obj = JSON.parse(jsonStr); }
     catch { throw new Error("导入文件不是有效 JSON"); }
-    if (!obj.version || !obj.kdf || !obj.verifier || !Array.isArray(obj.entries))
-      throw new Error("导入文件格式不正确");
+    validateVault(obj, "导入文件");
     writeRaw(obj);
-    // 导入的 vault 主密码可能与当前不同，旧 sync 元数据里的 PAT 用旧主密钥加密
-    // 已无法解密，故清空。用户可重新配置同步。
     if (VAULT.SYNC) VAULT.SYNC.disable();
-    lock(); // 导入后需重新解锁
+    lock();
   }
 
-  // --- 用远端拉回的 vault JSON 覆盖本地（用于同步冲突/恢复）---
-  // 调用方需保证 jsonStr 是本主密码可解密的 vault
-  function applyRemoteVault(jsonStr) {
+  async function applyRemoteVault(jsonStr) {
     let obj;
     try { obj = JSON.parse(jsonStr); }
     catch { throw new Error("远端数据不是有效 JSON"); }
-    if (!obj.version || !obj.kdf || !obj.verifier || !Array.isArray(obj.entries))
-      throw new Error("远端数据格式不正确");
+    validateVault(obj, "远端数据");
     writeRaw(obj);
-    state = obj;
+    if (key) {
+      state = obj;
+      await hydrateMetaCache(obj);
+    } else {
+      state = null;
+      metaCache = new Map();
+    }
   }
 
-  // --- 重置（彻底删除保险库）---
-  // opts.deleteRemote: 是否同时删除远端 Gist（需当前处于已解锁状态才可行）
-  // 返回 { remoteDeleted: boolean, remoteError?: string }
   async function reset(opts = {}) {
     let remoteDeleted = false, remoteError;
     if (opts.deleteRemote && VAULT.SYNC && VAULT.SYNC.isReady()) {
@@ -230,10 +291,10 @@
     return { remoteDeleted, remoteError };
   }
 
-  // --- 内部：要求已解锁 ---
   function requireUnlocked() {
     if (!key || !state) throw new Error("保险库未解锁");
   }
+
   function persist() { writeRaw(state); }
 
   Object.assign(VAULT, {

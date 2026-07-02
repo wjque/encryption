@@ -388,16 +388,19 @@
   // ============================================================
   // 配对加密（QR 码用）
   //
-  // 生成端：pin(4 位)+ token + gistId → PBKDF2 派生临时密钥 → AES-GCM 加密
+  // 生成端：pin(6 位)+ token + gistId + exp → PBKDF2 派生临时密钥 → AES-GCM 加密
   //         → base64url 编码为 URL fragment 内容
   // 扫码端：解 base64url → 用 pin 派生密钥 → 解密还原 {token, gistId}
   //
   // 生命周期：
   //   - 每次「添加新设备」重新生成 PIN 与盐/nonce → QR 每次不同
-  //   - PIN 只在生成端屏幕上显示 30 秒，倒计时结束 UI 关闭
+  //   - payload 内含过期时间；UI 倒计时结束后清屏
   //   - 扫码端拿到 payload 也需 PIN 才能解 → 偷拍 QR 无用
   // ============================================================
-  const PAIR_KDF_ITER = 200_000;    // 配对场景低于 vault 主 KDF 即可，PIN 只有 4 位数字
+  const PAIR_KDF_ITER = 300_000;
+  const PAIR_PIN_DIGITS = 6;
+  const PAIR_PIN_MOD = 10 ** PAIR_PIN_DIGITS;
+  const PAIR_TTL_MS = 30_000;
 
   // base64url（无填充，URL 安全）
   function b64u(bytes) {
@@ -420,24 +423,26 @@
   }
 
   // 生成配对 payload：返回 { pin, fragment }
-  //   - pin: 4 位数字字符串（UI 显示给用户）
+  //   - pin: 6 位数字字符串（UI 显示给用户）
   //   - fragment: 放到 URL 的 #pair=... 后面的 base64url 字符串
-  async function createPairPayload() {
+  async function createPairPayload(ttlMs = PAIR_TTL_MS) {
     if (!isReady()) throw new Error("同步未启用，无法生成配对码");
-    // 生成 4 位随机 PIN（0000-9999），用 crypto.getRandomValues 拒绝采样保证均匀
+    // 生成均匀随机 PIN
     const buf = new Uint32Array(1);
     let n;
-    const limit = 0x100000000 - (0x100000000 % 10000);
+    const limit = 0x100000000 - (0x100000000 % PAIR_PIN_MOD);
     do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
-    const pin = String(buf[0] % 10000).padStart(4, "0");
+    const pin = String(buf[0] % PAIR_PIN_MOD).padStart(PAIR_PIN_DIGITS, "0");
 
     const salt = VAULT.randomBytes(16);
     const nonce = VAULT.randomBytes(12);
     const key = await derivePinKey(pin, salt);
+    const now = Date.now();
     const plain = VAULT.utf8(JSON.stringify({
       v: 1,
       token: plainToken,
       gistId: syncState.gistId,
+      exp: now + ttlMs,
     }));
     const ct = new Uint8Array(await crypto.subtle.encrypt(
       { name: "AES-GCM", iv: nonce }, key, plain));
@@ -470,6 +475,8 @@
       throw new Error("PIN 错误或配对码已损坏");
     }
     const obj = JSON.parse(VAULT.fromUtf8(plain));
+    if (obj.v !== 1 || typeof obj.exp !== "number") throw new Error("配对码版本不支持");
+    if (Date.now() > obj.exp) throw new Error("配对码已过期");
     if (!obj.token || !obj.gistId) throw new Error("配对码内容不完整");
     return { token: obj.token, gistId: obj.gistId };
   }
