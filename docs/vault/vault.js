@@ -21,6 +21,16 @@
   let state = null;    // { meta, entries, key }  解锁后含派生密钥
   let key = null;      // 当前派生的 AES-GCM 密钥（仅内存）
 
+  // 触发防抖同步：所有会改变 vault 内容的操作在结尾调用它
+  function triggerSync() {
+    if (VAULT.SYNC && VAULT.SYNC.isReady()) {
+      VAULT.SYNC.schedulePush(exportVault);
+    }
+  }
+
+  // 获取当前主密钥（供 sync 层加密 PAT / 恢复流程等使用）
+  function getMasterKey() { return key; }
+
   // --- 原始读写 ---
   function readRaw() {
     try {
@@ -60,6 +70,7 @@
       throw new Error("主密码错误");
     key = candidate;
     state = vault;
+    if (VAULT.SYNC) await VAULT.SYNC.attach(key);
     return vault;
   }
 
@@ -67,6 +78,7 @@
   function lock() {
     key = null;
     state = null;
+    if (VAULT.SYNC) VAULT.SYNC.detach();
   }
   function isUnlocked() { return key !== null; }
 
@@ -95,6 +107,7 @@
     };
     state.entries.push(entry);
     persist();
+    triggerSync();
     return entry.id;
   }
 
@@ -111,6 +124,7 @@
     if (gen !== undefined) e.gen = gen || null;
     e.updated = Date.now();
     persist();
+    triggerSync();
   }
 
   // --- 解密单条密码（按需）---
@@ -128,6 +142,7 @@
     if (i < 0) throw new Error("条目不存在");
     const [removed] = state.entries.splice(i, 1);
     persist();
+    triggerSync();
     return removed;
   }
 
@@ -158,6 +173,9 @@
     writeRaw(newVault);
     key = newKey;
     state = newVault;
+    // 修改主密码后，需用新密钥重新加密 sync 层保存的 PAT
+    if (VAULT.SYNC) await VAULT.SYNC.rekey(newKey);
+    triggerSync();
   }
 
   // --- 导出（加密的完整备份，仍是密文）---
@@ -175,12 +193,28 @@
     if (!obj.version || !obj.kdf || !obj.verifier || !Array.isArray(obj.entries))
       throw new Error("导入文件格式不正确");
     writeRaw(obj);
+    // 导入的 vault 主密码可能与当前不同，旧 sync 元数据里的 PAT 用旧主密钥加密
+    // 已无法解密，故清空。用户可重新配置同步。
+    if (VAULT.SYNC) VAULT.SYNC.disable();
     lock(); // 导入后需重新解锁
+  }
+
+  // --- 用远端拉回的 vault JSON 覆盖本地（用于同步冲突/恢复）---
+  // 调用方需保证 jsonStr 是本主密码可解密的 vault
+  function applyRemoteVault(jsonStr) {
+    let obj;
+    try { obj = JSON.parse(jsonStr); }
+    catch { throw new Error("远端数据不是有效 JSON"); }
+    if (!obj.version || !obj.kdf || !obj.verifier || !Array.isArray(obj.entries))
+      throw new Error("远端数据格式不正确");
+    writeRaw(obj);
+    state = obj;
   }
 
   // --- 重置（彻底删除保险库）---
   function reset() {
     localStorage.removeItem(STORE_KEY);
+    if (VAULT.SYNC) VAULT.SYNC.disable();
     lock();
   }
 
@@ -192,8 +226,8 @@
 
   Object.assign(VAULT, {
     STORE_KEY, VERSION,
-    setup, unlock, lock, isUnlocked,
+    setup, unlock, lock, isUnlocked, getMasterKey,
     listEntries, addEntry, updateEntry, decryptPassword, deleteEntry,
-    changeMaster, exportVault, importVault, reset, exists,
+    changeMaster, exportVault, importVault, applyRemoteVault, reset, exists,
   });
 })(window);

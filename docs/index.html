@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>🔐 密码保险库</h1>
-  <p class="tagline">所有运算在浏览器本地完成，无网络请求</p>
+  <p class="tagline">所有运算在浏览器本地完成，可选用 GitHub Gist 跨设备同步</p>
 </header>
 
 <!-- ============ 解锁/设置界面 ============ -->
@@ -27,6 +27,8 @@
     <label class="check"><input type="checkbox" id="setup-show"> 显示输入</label>
     <button id="setup-btn" class="primary">创建保险库</button>
     <div id="setup-status" class="status"></div>
+    <hr>
+    <p class="hint small">已有其他设备的保险库？<a href="#" id="restore-link">从 GitHub Gist 恢复 →</a></p>
   </div>
 
   <div id="gate-unlock" hidden>
@@ -43,6 +45,7 @@
 
 <!-- ============ 主界面 ============ -->
 <main id="app" hidden>
+  <div id="sync-badge" class="sync-badge" hidden></div>
   <div class="toolbar">
     <input type="search" id="search" placeholder="搜索站点…" autocomplete="off">
     <button id="add-btn" class="primary">+ 添加</button>
@@ -89,14 +92,17 @@
 
 <!-- ============ 设置菜单 ============ -->
 <dialog id="menu-dialog">
-  <h3>设置</h3>
-  <button id="m-change" class="full">修改主密码</button>
-  <button id="m-export" class="full">导出备份（密文）</button>
-  <label class="full">导入备份
-    <input type="file" id="m-import-file" accept=".json,application/json">
-  </label>
-  <button id="m-reset" class="full danger">重置保险库（清除全部）</button>
-  <div class="dialog-actions"><button id="m-close" class="primary">关闭</button></div>
+  <form method="dialog">
+    <h3>设置</h3>
+    <button type="button" id="m-sync" class="full">☁ 云同步设置</button>
+    <button type="button" id="m-change" class="full">修改主密码</button>
+    <button type="button" id="m-export" class="full">导出备份（密文）</button>
+    <label class="full">导入备份
+      <input type="file" id="m-import-file" accept=".json,application/json">
+    </label>
+    <button type="button" id="m-reset" class="full danger">重置保险库（清除全部）</button>
+    <div class="dialog-actions"><button type="button" id="m-close" class="primary">关闭</button></div>
+  </form>
 </dialog>
 
 <!-- ============ 修改主密码 ============ -->
@@ -114,12 +120,103 @@
   </form>
 </dialog>
 
+<!-- ============ 云同步配置 ============ -->
+<dialog id="sync-dialog">
+  <form method="dialog" id="sync-form">
+    <h3>云同步（GitHub Gist）</h3>
+
+    <!-- 未启用时显示 -->
+    <div id="sync-off">
+      <p class="hint">
+        将加密后的保险库存到你自己的 <b>私有 GitHub Gist</b>，实现跨设备同步。
+        Gist 内容始终是密文，GitHub 看不到任何明文。
+      </p>
+      <label>Personal Access Token
+        <input type="password" id="sync-token" autocomplete="off"
+               placeholder="ghp_ / github_pat_ 开头">
+      </label>
+      <p class="hint small">
+        在 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">
+        GitHub → Settings → Developer settings → Fine-grained tokens</a>
+        创建，仅需勾选 <b>Gists: Read and write</b> 权限。
+      </p>
+      <label>Gist ID <span class="dim">（可选，已有则复用；留空则自动创建）</span>
+        <input type="text" id="sync-gistid" autocomplete="off" placeholder="留空 = 创建新 Gist">
+      </label>
+      <div id="sync-off-status" class="status"></div>
+      <div class="dialog-actions">
+        <button type="button" id="sync-cancel">取消</button>
+        <button type="button" id="sync-enable" class="primary">启用同步</button>
+      </div>
+    </div>
+
+    <!-- 已启用时显示 -->
+    <div id="sync-on" hidden>
+      <p class="hint">
+        云同步已启用。<br>
+        <b>Gist ID：</b><code id="sync-info-gistid"></code><br>
+        <b>上次同步：</b><span id="sync-info-time"></span>
+      </p>
+      <div id="sync-on-status" class="status"></div>
+      <div class="dialog-actions" style="flex-wrap: wrap; gap: 8px;">
+        <button type="button" id="sync-pull">立即拉取</button>
+        <button type="button" id="sync-push">立即推送</button>
+        <button type="button" id="sync-disable" class="danger">关闭同步</button>
+        <button type="button" id="sync-close-on" class="primary">关闭</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ 同步冲突 ============ -->
+<dialog id="conflict-dialog">
+  <form method="dialog">
+    <h3>⚠ 同步冲突</h3>
+    <p class="hint">
+      检测到<b>远端 Gist 与本地不一致</b>——你可能在另一台设备上修改过。请选择处理方式：
+    </p>
+    <div class="dialog-actions" style="flex-direction: column; align-items: stretch;">
+      <button type="button" id="cf-pull" class="full">拉取远端 → 覆盖本地（推荐）</button>
+      <button type="button" id="cf-push" class="full danger">本地覆盖远端（放弃远端变更）</button>
+      <button type="button" id="cf-later" class="full">稍后处理（保持本地未同步）</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ 从 Gist 恢复 ============ -->
+<dialog id="restore-dialog">
+  <form method="dialog" id="restore-form">
+    <h3>从 GitHub Gist 恢复</h3>
+    <p class="hint">
+      从另一台已启用云同步的设备接入。你需要：<br>
+      1. 该设备的 <b>Gist ID</b><br>
+      2. 一个有 <b>Gists</b> 权限的 GitHub PAT<br>
+      3. 创建保险库时的 <b>主密码</b>
+    </p>
+    <label>Personal Access Token
+      <input type="password" id="r-token" autocomplete="off">
+    </label>
+    <label>Gist ID
+      <input type="text" id="r-gistid" autocomplete="off">
+    </label>
+    <label>主密码
+      <input type="password" id="r-master" autocomplete="current-password">
+    </label>
+    <div id="r-status" class="status"></div>
+    <div class="dialog-actions">
+      <button type="button" id="r-cancel">取消</button>
+      <button type="button" id="r-go" class="primary">恢复</button>
+    </div>
+  </form>
+</dialog>
+
 <footer>
   <p class="warn">⚠️ 主密码遗忘 = 数据无法恢复，请务必牢记并定期导出备份。</p>
 </footer>
 
 <script src="vault/crypto.js"></script>
 <script src="vault/generator.js"></script>
+<script src="vault/sync.js"></script>
 <script src="vault/vault.js"></script>
 <script src="vault/ui.js"></script>
 </body>

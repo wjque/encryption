@@ -22,7 +22,8 @@
 - **强密码生成器**：`crypto.getRandomValues` + 拒绝采样消除模偏，保证每种字符集至少出现一次。
 - **导出/导入**：导出为加密 JSON 备份文件；导入后需用原主密码解锁。
 - **修改主密码**：用旧密钥解密全部条目，用新密钥重新加密后原子写入。
-- **零网络请求**：所有运算在浏览器本地完成。
+- **可选云同步**：将加密后的保险库存到你自己的**私有 GitHub Gist**，实现跨设备同步。
+  同步的内容始终是密文，GitHub 无法读取；PAT 本地也用主密钥加密保存。
 
 ## 文件结构
 
@@ -36,7 +37,8 @@ Encryption/
 │       ├── crypto.js           # PBKDF2 + AES-256-GCM 封装
 │       ├── generator.js        # 强密码生成器
 │       ├── vault.js            # 保险库数据模型（localStorage 持久化）
-│       ├── ui.js               # UI 交互（锁定/解锁/条目管理/设置）
+│       ├── sync.js             # GitHub Gist 云同步
+│       ├── ui.js               # UI 交互（锁定/解锁/条目管理/设置/同步）
 │       └── vault.css           # 深色主题样式
 └── .github/workflows/deploy.yml # GitHub Pages 自动部署
 ```
@@ -116,6 +118,78 @@ Encryption/
 
 此操作会**彻底删除**浏览器 localStorage 中的所有数据，不可恢复。
 
+## 云同步（GitHub Gist）
+
+内置基于 GitHub Gist 的跨设备同步。加密后的保险库存到你自己的**私有 Gist**，Gist 内容始终是密文，GitHub 无法读取任何明文。
+
+### 一次性准备：创建 GitHub Personal Access Token
+
+1. 打开 [GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens**](https://github.com/settings/personal-access-tokens/new)。
+2. 填写：
+   - **Token name**：任意，如 `password-vault-sync`
+   - **Expiration**：建议 1 年（到期需要重新生成）
+   - **Repository access**：选 `Public Repositories (read-only)` 即可（Gist 权限与 repo 权限独立，此项不影响 Gist）
+   - **Permissions → Account permissions → Gists**：设为 **Read and write**
+3. 点击「Generate token」，**立即复制** 生成的 token（`github_pat_...` 开头）。GitHub 关闭页面后无法再看到。
+
+> 该 token 只有 Gists 读写权限，最坏后果是你自己的 Gist 被读或改，不影响任何其他仓库或账号资料。
+
+### 在首台设备启用
+
+1. 解锁保险库后，点工具栏 ⚙ →「☁ 云同步设置」。
+2. 粘贴刚才的 PAT，Gist ID 留空（**首次启用会自动创建新 Gist**）。
+3. 点「启用同步」。程序会：
+   - 验证 token 有效性
+   - 创建一个私有 Gist，把当前保险库（密文）上传
+   - 用当前主密钥对 PAT 做 AES-GCM 加密，存入 localStorage
+4. 完成后主界面顶部出现「☁ ✓ 已同步 X 分钟前」徽章。
+5. **记下 Gist ID**（在同步设置里显示），第二台设备需要用到。
+
+之后每次添加/修改/删除条目，程序会自动在 **3 秒防抖** 后推送到 Gist。
+
+### 在第二台设备接入
+
+1. 打开保险库页面，出现「设置主密码」界面。
+2. 点击底部「**从 GitHub Gist 恢复 →**」。
+3. 填写三个字段：
+   - **Personal Access Token**：一个有 Gists 权限的 PAT（可以复用同一个，也可以为该设备创建独立的 PAT）
+   - **Gist ID**：首台设备启用时得到的 Gist ID
+   - **主密码**：创建保险库时用的主密码
+4. 点「恢复」。程序会：
+   - 从 GitHub 拉取加密的 Gist 内容
+   - 用你输入的主密码派生密钥，尝试解密验证器
+   - 密码正确 → 用主密钥加密 PAT，写入本设备的 localStorage
+   - 进入主界面
+
+之后两台设备任何一方的变更都会自动同步。
+
+### 冲突处理
+
+如果两台设备**在同一时间段内都做了修改**，推送时会检测到远端 ETag 已变化，弹出冲突对话框：
+
+- **拉取远端 → 覆盖本地**：放弃本设备的未同步变更，用远端版本覆盖
+- **本地覆盖远端**：强制推送本地版本，覆盖远端的变更
+- **稍后处理**：暂时保留本地，稍后重试
+
+日常单人使用时（人不会同时在两处改），冲突极少发生。
+
+### 关闭同步
+
+点工具栏 ⚙ →「☁ 云同步设置」→「关闭同步」。
+
+- 本地保存的 PAT 和 Gist ID 会被清除。
+- GitHub 上的 Gist **不会**被删除——需要的话请手动到 [gist.github.com](https://gist.github.com) 删除。
+
+### 云同步的安全边界
+
+| 威胁 | 是否受影响 |
+|------|-----------|
+| GitHub 员工 / Gist 泄露 | 只能看到密文，不掌握主密码则无法解密 |
+| PAT 被他人窃取 | 攻击者可读/改你的 Gist，但拿到密文仍需主密码；且 fine-grained token 只影响 Gist，不影响其他资源 |
+| 中间人 | 全 HTTPS + GitHub 证书 |
+| 主密码泄露 | 与本地场景相同——所有保护失效，请务必用强主密码 |
+| 云盘/GitHub 服务不可用 | 本地 localStorage 副本仍可正常使用，恢复后自动补推 |
+
 ## 本地预览
 
 ```bash
@@ -139,9 +213,11 @@ python3 -m http.server -d docs 8000
 - **密钥派生**：PBKDF2-SHA256，600,000 次迭代（OWASP 2023 推荐值）。
 - **对称加密**：AES-256-GCM，每条独立 96 位随机 nonce，密文含 128 位认证标签。
 - **密码生成器**：拒绝采样消除模偏；Fisher-Yates 洗牌保证均匀分布。
-- **存储**：localStorage，键名 `rsa-vault`，值结构为版本号 + KDF 参数 + 验证器 + 加密条目数组。
+- **存储**：localStorage，键名 `rsa-vault`（保险库）+ `rsa-vault-sync`（同步元数据）。
 - **密钥不可导出**：WebCrypto `CryptoKey` 创建时 `extractable=false`，无法通过 `exportKey` 获取原始密钥字节。
-- 无第三方依赖、无构建步骤、无网络请求。
+- **同步冲突检测**：客户端乐观锁——推送前先 GET Gist etag，与上次记忆的 etag 比对；不一致则视为冲突交给用户处理。
+- **PAT 保护**：Personal Access Token 用当前主密钥 AES-GCM 加密后存 localStorage；锁定后内存密钥丢弃，token 无法被解密。
+- 无第三方依赖、无构建步骤；除可选的 GitHub Gist 同步外，无任何网络请求。
 
 ---
 
