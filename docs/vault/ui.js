@@ -6,9 +6,11 @@
   const V = window.VAULT;
   const S = V.SYNC;
   const $ = (id) => document.getElementById(id);
+  const THEME_KEY = "rsa-vault-theme";
   const AUTO_LOCK_MS = 5 * 60 * 1000; // 闲置 5 分钟自动锁定
   let autoLockTimer = null;
   let pendingConflictContent = null; // 冲突时保存远端内容
+  let systemThemeQuery = null;
 
   // ---- 工具 ----
   function fmtTime(ts) {
@@ -62,6 +64,41 @@
     const m = strengthMeter(password);
     el.innerHTML = m.html;
     el.className = "meter " + m.cls;
+  }
+  function getThemeSetting() {
+    try { return localStorage.getItem(THEME_KEY) || "dark"; }
+    catch { return "dark"; }
+  }
+  function prefersLightTheme() {
+    return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches;
+  }
+  function resolveTheme(theme) {
+    if (theme !== "system") return theme;
+    return prefersLightTheme() ? "light" : "dark";
+  }
+  function applyTheme(theme) {
+    document.documentElement.dataset.theme = resolveTheme(theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch {}
+    syncThemeControls(theme);
+  }
+  function syncThemeControls(theme = getThemeSetting()) {
+    ["gate-theme", "app-theme"].forEach(id => {
+      const el = $(id);
+      if (el) el.value = theme;
+    });
+  }
+  function initTheme() {
+    applyTheme(getThemeSetting());
+    if (typeof matchMedia !== "function") return;
+    systemThemeQuery = matchMedia("(prefers-color-scheme: light)");
+    const onSystemThemeChange = () => {
+      if (getThemeSetting() === "system") applyTheme("system");
+    };
+    if (systemThemeQuery.addEventListener) {
+      systemThemeQuery.addEventListener("change", onSystemThemeChange);
+    } else if (systemThemeQuery.addListener) {
+      systemThemeQuery.addListener(onSystemThemeChange);
+    }
   }
 
   // ============ 启动：决定显示哪个门 ============
@@ -310,8 +347,12 @@
   $("lock-btn").addEventListener("click", exitApp);
 
   // ============ 设置菜单 ============
-  $("menu-btn").addEventListener("click", () => $("menu-dialog").showModal());
+  $("menu-btn").addEventListener("click", () => {
+    $("menu-dialog").showModal();
+  });
   $("m-close").addEventListener("click", () => $("menu-dialog").close());
+  $("gate-theme").addEventListener("change", (e) => applyTheme(e.target.value));
+  $("app-theme").addEventListener("change", (e) => applyTheme(e.target.value));
 
   $("m-change").addEventListener("click", () => {
     $("menu-dialog").close();
@@ -862,6 +903,7 @@
   }
 
   // ============ 启动 ============
+  initTheme();
   initGate();
   checkPairFragment();
 })();

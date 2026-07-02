@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>密码保险库</title>
+<script>
+(() => {
+  try {
+    const saved = localStorage.getItem("rsa-vault-theme") || "dark";
+    const prefersLight = typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches;
+    document.documentElement.dataset.theme = saved === "system" ? (prefersLight ? "light" : "dark") : saved;
+  } catch {}
+})();
+</script>
 <link rel="stylesheet" href="vault/vault.css">
 </head>
 <body>
@@ -14,6 +23,13 @@
 
 <!-- ============ 解锁/设置界面 ============ -->
 <section id="gate" class="card">
+  <label class="theme-picker">🌞/🌙
+    <select id="gate-theme" aria-label="界面样式">
+      <option value="dark">深色</option>
+      <option value="light">浅色</option>
+      <option value="system">跟随系统</option>
+    </select>
+  </label>
   <div id="gate-setup">
     <h2>🔑 设置主密码</h2>
     <p class="hint">主密码不会保存，遗忘无法恢复</p>
@@ -49,6 +65,13 @@
 
 <!-- ============ 主界面 ============ -->
 <main id="app" hidden>
+  <label class="theme-picker">🌞/🌙
+    <select id="app-theme" aria-label="界面样式">
+      <option value="dark">深色</option>
+      <option value="light">浅色</option>
+      <option value="system">跟随系统</option>
+    </select>
+  </label>
   <div id="sync-badge" class="sync-badge" hidden></div>
   <div class="toolbar">
     <input type="search" id="search" placeholder="搜索站点…" autocomplete="off">
