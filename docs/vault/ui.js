@@ -348,11 +348,16 @@
 
   // ============ 设置菜单 ============
   $("menu-btn").addEventListener("click", () => {
+    renderMenuActions();
     $("menu-dialog").showModal();
   });
   $("m-close").addEventListener("click", () => $("menu-dialog").close());
   $("gate-theme").addEventListener("change", (e) => applyTheme(e.target.value));
   $("app-theme").addEventListener("change", (e) => applyTheme(e.target.value));
+
+  function renderMenuActions() {
+    $("m-add-device").hidden = !S.isConfigured();
+  }
 
   $("m-change").addEventListener("click", () => {
     $("menu-dialog").close();
@@ -403,6 +408,16 @@
   $("m-reset").addEventListener("click", () => {
     $("menu-dialog").close();
     openResetDialog();
+  });
+
+  $("m-add-device").addEventListener("click", async () => {
+    $("menu-dialog").close();
+    if (!S.isConfigured()) {
+      alert("请先启用云同步。");
+      return;
+    }
+    await regeneratePairCode();
+    $("pair-dialog").showModal();
   });
 
   function openResetDialog() {
@@ -680,19 +695,13 @@
   let pairCountdownTimer = null;
   const PAIR_TTL_SEC = 30;
 
-  $("sync-add-device").addEventListener("click", async () => {
-    $("sync-dialog").close();
-    await regeneratePairCode();
-    $("pair-dialog").showModal();
-  });
-
   async function regeneratePairCode() {
     try {
       const { pin, fragment } = await S.createPairPayload();
       const url = location.origin + location.pathname + "#pair=" + fragment;
       $("pair-pin").textContent = pin.split("").join(" ");
       $("pair-url").value = url;
-      $("pair-qr").innerHTML = QR.toSVG(url, { scale: 4, margin: 2 });
+      $("pair-qr").innerHTML = QR.toSVG(url, { scale: 5, margin: 4 });
       startCountdown(PAIR_TTL_SEC);
     } catch (e) {
       alert("生成配对码失败：" + e.message);

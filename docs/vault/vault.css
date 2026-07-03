@@ -206,7 +206,7 @@ code { font-family: var(--mono); }
 
 /* ============ 配对 QR ============ */
 .pair-qr {
-  width: 260px; height: 260px; max-width: 100%;
+  width: 320px; max-width: 100%; aspect-ratio: 1 / 1; height: auto;
   margin: 12px auto; background: #fff; padding: 12px;
   border-radius: 8px;
 }
@@ -230,7 +230,7 @@ code { font-family: var(--mono); }
 .pair-url-row button { flex-shrink: 0; }
 
 @media (max-width: 640px) {
-  .pair-qr { width: 220px; height: 220px; }
+  .pair-qr { width: 300px; }
   .pair-pin { font-size: 26px; letter-spacing: 3px; }
 }
 

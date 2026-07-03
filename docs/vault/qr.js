@@ -254,6 +254,11 @@
     if ((r < 9 && c < 9) || (r < 9 && c >= size - 8) || (r >= size - 8 && c < 9)) return false;
     // timing
     if (r === 6 || c === 6) return false;
+    // version info (v7+)
+    if (version >= 7) {
+      if (r < 6 && c >= size - 11 && c <= size - 9) return false;
+      if (c < 6 && r >= size - 11 && r <= size - 9) return false;
+    }
     // alignment
     const pos = ALIGN_POS[version] || [];
     for (const ar of pos) for (const ac of pos) {
